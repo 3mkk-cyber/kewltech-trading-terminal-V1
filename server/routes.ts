@@ -100,30 +100,41 @@ export async function registerRoutes(
         timestamp: Date.now(),
         symbol: symbol,
         price: currentPrice,
-        signal: signal,
-        trend: trend,
-        macd: lastMacd
-          ? {
-              value: lastMacd.MACD,
-              signal: lastMacd.signal as IndicatorSignal,
-              histogram: lastMacd.histogram,
-            }
-          : { value: 0, signal: "neutral" as IndicatorSignal, histogram: 0 },
-        stochastic: lastStoch
-          ? {
-              value: lastStoch.k,
-              k: lastStoch.k,
-              d: lastStoch.d,
-              signal: (lastStoch.k < 20
-                ? "buy"
-                : lastStoch.k > 80
-                  ? "sell"
-                  : "neutral") as IndicatorSignal,
-            }
-          : { value: 50, k: 50, d: 50, signal: "neutral" as IndicatorSignal },
-        rsi: lastRSI || 50,
-        support: support,
-        resistance: resistance,
+        indicators: {
+          trend: trend,
+          macd: lastMacd
+            ? {
+                value: lastMacd.MACD,
+                signal: lastMacd.signal as IndicatorSignal,
+                histogram: lastMacd.histogram,
+              }
+            : { value: 0, signal: "neutral" as IndicatorSignal, histogram: 0 },
+          stochastic: lastStoch
+            ? {
+                value: lastStoch.k,
+                k: lastStoch.k,
+                d: lastStoch.d,
+                signal: (lastStoch.k < 20
+                  ? "buy"
+                  : lastStoch.k > 80
+                    ? "sell"
+                    : "neutral") as IndicatorSignal,
+              }
+            : { value: 50, k: 50, d: 50, signal: "neutral" as IndicatorSignal },
+          rsi: {
+            value: lastRSI || 50,
+            signal: (lastRSI < 30
+              ? "buy"
+              : lastRSI > 70
+                ? "sell"
+                : "neutral") as IndicatorSignal,
+          },
+        },
+        levels: {
+          support: support,
+          resistance: resistance,
+        },
+        summary: `Market analysis for ${symbol}: ${trend} trend detected with ${signal} signal. Price: $${currentPrice}`,
       };
 
       // Store in database
