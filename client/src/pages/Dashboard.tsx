@@ -29,8 +29,8 @@ export default function Dashboard() {
     );
   }
 
-  const isBullish = analysis?.data?.trend === "bullish";
-  const isBearish = analysis?.data?.trend === "bearish";
+  const isBullish = analysis?.indicators?.trend === "bullish";
+  const isBearish = analysis?.indicators?.trend === "bearish";
 
   return (
     <div className="min-h-screen bg-background text-foreground p-4 md:p-6 lg:p-8 font-sans selection:bg-primary/20">
@@ -71,8 +71,8 @@ export default function Dashboard() {
                   )}
                 >
                   {isBullish && <ArrowUpRight className="w-8 h-8" />}
-                  {isBearish && <ArrowDownRight className="w-8 h-8" />}
-                  ${analysis?.data?.price?.toLocaleString()}
+                  {isBearish && <ArrowDownRight className="w-8 h-8" />}$
+                  {analysis?.price || "Loading..."}
                 </div>
               )}
             </div>
@@ -99,7 +99,7 @@ export default function Dashboard() {
                       : "text-foreground",
                 )}
               >
-                {analysis?.data?.trend || "NEUTRAL"}
+                {analysis?.indicators?.trend || "NEUTRAL"}
               </span>
             </div>
           </div>
@@ -135,7 +135,7 @@ export default function Dashboard() {
                 </div>
               ) : (
                 <p className="text-lg leading-relaxed font-sans text-foreground/90">
-                  {analysis?.data?.summary}
+                  {analysis?.summary}
                 </p>
               )}
             </section>
@@ -157,31 +157,31 @@ export default function Dashboard() {
               <>
                 <IndicatorCard
                   title="MACD MOMENTUM"
-                  value={analysis?.data?.macd}
+                  value={analysis?.indicators?.macd}
                   icon={<BarChart2 className="w-4 h-4" />}
                 >
                   <div className="mt-2 text-xs font-mono text-muted-foreground flex justify-between">
                     <span>HISTOGRAM</span>
                     <span
                       className={cn(
-                        (analysis?.data?.macd?.histogram || 0) > 0
+                        (analysis?.indicators?.macd?.histogram || 0) > 0
                           ? "text-green-400"
                           : "text-red-400",
                       )}
                     >
-                      {analysis?.data?.macd?.histogram?.toFixed(4)}
+                      {analysis?.indicators?.macd?.histogram?.toFixed(4)}
                     </span>
                   </div>
                   <div className="w-full bg-muted/30 h-1.5 rounded-full mt-2 overflow-hidden">
                     <div
                       className={cn(
                         "h-full transition-all duration-500",
-                        (analysis?.data?.macd?.histogram || 0) > 0
+                        (analysis?.indicators?.macd?.histogram || 0) > 0
                           ? "bg-green-500"
                           : "bg-red-500",
                       )}
                       style={{
-                        width: `${Math.min(Math.abs((analysis?.data?.macd?.histogram || 0) * 50), 100)}%`,
+                        width: `${Math.min(Math.abs((analysis?.indicators?.macd?.histogram || 0) * 50), 100)}%`,
                       }}
                     />
                   </div>
@@ -189,7 +189,7 @@ export default function Dashboard() {
 
                 <IndicatorCard
                   title="STOCHASTIC OSC"
-                  value={analysis?.data?.stochastic}
+                  value={analysis?.indicators?.stochastic}
                   icon={<RefreshCcw className="w-4 h-4" />}
                 >
                   <div className="grid grid-cols-2 gap-4 mt-2">
@@ -198,7 +198,7 @@ export default function Dashboard() {
                         FAST %K
                       </div>
                       <div className="text-sm font-mono text-foreground">
-                        {analysis?.data?.stochastic?.k?.toFixed(1)}
+                        {analysis?.indicators?.stochastic?.k?.toFixed(1)}
                       </div>
                     </div>
                     <div>
@@ -206,7 +206,7 @@ export default function Dashboard() {
                         SLOW %D
                       </div>
                       <div className="text-sm font-mono text-foreground">
-                        {analysis?.data?.stochastic?.d?.toFixed(1)}
+                        {analysis?.indicators?.stochastic?.d?.toFixed(1)}
                       </div>
                     </div>
                   </div>
@@ -216,7 +216,9 @@ export default function Dashboard() {
                     <div className="absolute left-[80%] top-0 bottom-0 w-0.5 bg-white/10" />
                     <div
                       className="h-full bg-blue-500 transition-all duration-500"
-                      style={{ width: `${analysis?.data?.stochastic?.k || 0}%` }}
+                      style={{
+                        width: `${analysis?.indicators?.stochastic?.k || 0}%`,
+                      }}
                     />
                   </div>
                 </IndicatorCard>
@@ -231,7 +233,7 @@ export default function Dashboard() {
                         RESISTANCE
                       </span>
                       <span className="font-mono text-foreground">
-                        {analysis?.data?.resistance?.toLocaleString()}
+                        {analysis?.indicators?.resistance?.toLocaleString()}
                       </span>
                     </div>
                     <div className="h-px bg-gradient-to-r from-transparent via-border to-transparent" />
@@ -240,7 +242,7 @@ export default function Dashboard() {
                         CURRENT
                       </span>
                       <span className="font-mono text-foreground font-bold">
-                        {analysis?.data?.price?.toLocaleString()}
+                        {analysis?.indicators?.price?.toLocaleString()}
                       </span>
                     </div>
                     <div className="h-px bg-gradient-to-r from-transparent via-border to-transparent" />
@@ -249,7 +251,7 @@ export default function Dashboard() {
                         SUPPORT
                       </span>
                       <span className="font-mono text-foreground">
-                        {analysis?.data?.support?.toLocaleString()}
+                        {analysis?.indicators?.support?.toLocaleString()}
                       </span>
                     </div>
                   </div>

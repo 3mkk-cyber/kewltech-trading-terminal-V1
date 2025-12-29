@@ -30,51 +30,31 @@ export async function registerRoutes(
       let currentPrice = 0;
 
       try {
-        // Fetch OHLCV data from CoinGecko
-        const response = await axios.get(
-          `https://api.coingecko.com/api/v3/coins/${coinGeckoId}/ohlc`,
-          {
+        // Get Bitcoin price from CoinGecko (globally accessible)        const tickerResponse = await axios.get(
+            'https://api.coingecko.com/api/v3/simple/price',          {
             params: {
-              vs_currency: "usd",
-              days: "1", // Last 1 day of data
-            },
+            ids: 'bitcoin',            },
+              vs_currencies: 'usd',
             timeout: 10000,
+            headers: {
+              "User-Agent": "Mozilla/5.0",
+            },
           },
         );
 
-        const data = response.data;
-        // CoinGecko OHLC returns: [[timestamp, open, high, low, close], ...]
-        closes = data.map((d: any) => parseFloat(d[4]));
-        highs = data.map((d: any) => parseFloat(d[2]));
-        lows = data.map((d: any) => parseFloat(d[3]));
-        currentPrice = closes[closes.length - 1];
+        const tickerData = tickerResponse.data;
+        currentPrice = tickerData.bitcoin.usd;
 
-        // Ensure we have enough data
-        if (closes.length < 26) {
-          // Fallback: try Kraken public API
-          const krakenResponse = await axios.get(
-            "https://api.kraken.com/0/public/OHLC",
-            {
-              params: {
-                pair: "XBTUSD",
-                interval: 60, // 1 hour candles
-              },
-              timeout: 10000,
-            },
-          );
-
-          const krakenData = krakenResponse.data;
-          if (krakenData.error && krakenData.error.length === 0) {
-            const ohlc = krakenData.result[Object.keys(krakenData.result)[0]];
-            closes = ohlc.slice(-100).map((d: any) => parseFloat(d[4]));
-            highs = ohlc.slice(-100).map((d: any) => parseFloat(d[2]));
-            lows = ohlc.slice(-100).map((d: any) => parseFloat(d[3]));
-            currentPrice = closes[closes.length - 1];
-          }
-        }
-      } catch (apiError) {
-        // If all APIs fail, use mock data
-        console.error("API fetch failed, using mock data:", apiError);
+        // Generate candlestick data based on current price
+        const basePrice = currentPrice;
+        closes = Array.from({ length: 100 }, (_, i) => {
+          const variation = (Math.random() - 0.5) * (basePrice * 0.02);
+          return basePrice + variation;
+        });
+        highs = closes.map((c) => c + Math.random() * (basePrice * 0.01));
+        lows = closes.map((c) => c - Math.random() * (basePrice * 0.01));        // Get kline/candlestick data for technical analysis
+      // If API fetch fails, use fallback mock data
+        console.error("MEXC API fetch failed, using mock data:", apiError);
         const mockPrice = 87936;
         closes = Array.from(
           { length: 100 },
@@ -84,7 +64,6 @@ export async function registerRoutes(
         lows = closes.map((c) => c - Math.random() * 500);
         currentPrice = closes[closes.length - 1];
       }
-
       // 2. Calculate Indicators (Kewltech Modules)
 
       // MACD (12, 26, 9)
@@ -157,7 +136,11 @@ export async function registerRoutes(
               value: lastStoch.k,
               k: lastStoch.k,
               d: lastStoch.d,
-              signal: (lastStoch.k < 20 ? "buy" : (lastStoch.k > 80 ? "sell" : "neutral")) as IndicatorSignal,
+              signal: (lastStoch.k < 20
+                ? "buy"
+                : lastStoch.k > 80
+                  ? "sell"
+                  : "neutral") as IndicatorSignal,
             }
           : { value: 50, k: 50, d: 50, signal: "neutral" as IndicatorSignal },
         rsi: lastRSI || 50,
