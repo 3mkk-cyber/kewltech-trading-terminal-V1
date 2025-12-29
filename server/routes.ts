@@ -15,56 +15,34 @@ export async function registerRoutes(
     try {
       const symbol = req.params.symbol.toUpperCase(); // e.g., BTCUSDT
 
-      // 1. Fetch data from CoinGecko (No key needed for public data)
-      // CoinGecko uses different symbol format: 'bitcoin', 'ethereum', etc.
-      // For simplicity, map BTCUSDT -> bitcoin, ETHUSDT -> ethereum
-      const coinGeckoId = symbol.includes("BTC")
-        ? "bitcoin"
-        : symbol.includes("ETH")
-          ? "ethereum"
-          : "bitcoin";
+      // 1. Fetch Data from WooFi Pro / Orderly Network Public API
+      const baseCurrency = symbol.replace("USDT", "");
+      const orderlySymbol = "PERP_" + baseCurrency + "_USDC";
+      const now = Math.floor(Date.now() / 1000);
+      const from = now - 100 * 3600;
 
-      let closes: number[] = [];
-      let highs: number[] = [];
-      let lows: number[] = [];
-      let currentPrice = 0;
-
-      try {
-        // Get Bitcoin price from CoinGecko (globally accessible)        const tickerResponse = await axios.get(
-            'https://api.coingecko.com/api/v3/simple/price',          {
-            params: {
-            ids: 'bitcoin',            },
-              vs_currencies: 'usd',
-            timeout: 10000,
-            headers: {
-              "User-Agent": "Mozilla/5.0",
-            },
+      const response = await axios.get(
+        "https://api.orderly.org/v1/tv/kline_history",
+        {
+          params: {
+            symbol: orderlySymbol,
+            resolution: "1h",
+            from: from.toString(),
+            to: now.toString(),
+            limit: 100,
           },
-        );
+        },
+      );
 
-        const tickerData = tickerResponse.data;
-        currentPrice = tickerData.bitcoin.usd;
-
-        // Generate candlestick data based on current price
-        const basePrice = currentPrice;
-        closes = Array.from({ length: 100 }, (_, i) => {
-          const variation = (Math.random() - 0.5) * (basePrice * 0.02);
-          return basePrice + variation;
-        });
-        highs = closes.map((c) => c + Math.random() * (basePrice * 0.01));
-        lows = closes.map((c) => c - Math.random() * (basePrice * 0.01));        // Get kline/candlestick data for technical analysis
-      // If API fetch fails, use fallback mock data
-        console.error("MEXC API fetch failed, using mock data:", apiError);
-        const mockPrice = 87936;
-        closes = Array.from(
-          { length: 100 },
-          (_, i) => mockPrice + (Math.random() - 0.5) * 1000 * (i / 100),
-        );
-        highs = closes.map((c) => c + Math.random() * 500);
-        lows = closes.map((c) => c - Math.random() * 500);
-        currentPrice = closes[closes.length - 1];
+      const klineData = response.data;
+      if (klineData.s !== "ok" || !klineData.c || klineData.c.length === 0) {
+        throw new Error("No kline data available");
       }
-      // 2. Calculate Indicators (Kewltech Modules)
+
+      const closes = klineData.c;
+      const highs = klineData.h;
+      const lows = klineData.l;
+      const currentPrice = closes[closes.length - 1];
 
       // MACD (12, 26, 9)
       const macdInput = {

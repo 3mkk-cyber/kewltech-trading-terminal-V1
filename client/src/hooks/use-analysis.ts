@@ -25,7 +25,7 @@ export function useAnalysisHistory(symbol: string) {
       const url = buildUrl(api.analysis.history.path, { symbol });
       const res = await fetch(url);
       if (!res.ok) throw new Error("Failed to fetch history");
-      return api.analysis.history.responses[200].parse(await res.json());
+      return await res.json();
     },
     refetchInterval: 10000, // Poll history less frequently
   });
