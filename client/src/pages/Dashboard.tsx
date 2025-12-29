@@ -2,14 +2,14 @@ import { useLiveAnalysis, useAnalysisHistory } from "@/hooks/use-analysis";
 import { IndicatorCard } from "@/components/IndicatorCard";
 import { PriceChart } from "@/components/PriceChart";
 import { format } from "date-fns";
-import { 
-  ArrowUpRight, 
-  ArrowDownRight, 
-  Activity, 
-  BarChart2, 
-  Layers, 
-  RefreshCcw, 
-  Zap 
+import {
+  ArrowUpRight,
+  ArrowDownRight,
+  Activity,
+  BarChart2,
+  Layers,
+  RefreshCcw,
+  Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
@@ -18,7 +18,8 @@ const DEFAULT_SYMBOL = "BTCUSDT";
 
 export default function Dashboard() {
   const { data: analysis, isLoading, error } = useLiveAnalysis(DEFAULT_SYMBOL);
-  const { data: history, isLoading: historyLoading } = useAnalysisHistory(DEFAULT_SYMBOL);
+  const { data: history, isLoading: historyLoading } =
+    useAnalysisHistory(DEFAULT_SYMBOL);
 
   if (error) {
     return (
@@ -28,13 +29,12 @@ export default function Dashboard() {
     );
   }
 
-  const isBullish = analysis?.indicators.trend === 'bullish';
-  const isBearish = analysis?.indicators.trend === 'bearish';
+  const isBullish = analysis?.indicators?.trend === "bullish";
+  const isBearish = analysis?.indicators?.trend === "bearish";
 
   return (
     <div className="min-h-screen bg-background text-foreground p-4 md:p-6 lg:p-8 font-sans selection:bg-primary/20">
       <div className="max-w-7xl mx-auto space-y-6">
-        
         {/* Header Section */}
         <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border/50 pb-6">
           <div>
@@ -54,32 +54,52 @@ export default function Dashboard() {
 
           <div className="flex items-center gap-6">
             <div className="text-right">
-              <div className="text-sm text-muted-foreground font-mono mb-1">CURRENT PRICE</div>
+              <div className="text-sm text-muted-foreground font-mono mb-1">
+                CURRENT PRICE
+              </div>
               {isLoading ? (
                 <div className="h-10 w-32 bg-muted animate-pulse rounded" />
               ) : (
-                <div className={cn(
-                  "text-3xl md:text-4xl font-mono font-bold tracking-tighter flex items-center justify-end gap-2",
-                  isBullish ? "text-green-500 text-glow-green" : isBearish ? "text-red-500 text-glow-red" : "text-foreground"
-                )}>
-                  ${analysis?.price.toLocaleString()}
+                <div
+                  className={cn(
+                    "text-3xl md:text-4xl font-mono font-bold tracking-tighter flex items-center justify-end gap-2",
+                    isBullish
+                      ? "text-green-500 text-glow-green"
+                      : isBearish
+                        ? "text-red-500 text-glow-red"
+                        : "text-foreground",
+                  )}
+                >
                   {isBullish && <ArrowUpRight className="w-8 h-8" />}
-                  {isBearish && <ArrowDownRight className="w-8 h-8" />}
+                  {isBearish && <ArrowDownRight className="w-8 h-8" />}$
+                  {analysis?.price || "Loading..."}
                 </div>
               )}
             </div>
-            <div className={cn(
-              "hidden md:flex flex-col items-center justify-center w-24 h-24 rounded-2xl border-2 backdrop-blur-sm",
-              isBullish ? "bg-green-500/5 border-green-500/30" : 
-              isBearish ? "bg-red-500/5 border-red-500/30" : 
-              "bg-muted/5 border-muted"
-            )}>
-              <span className="text-[10px] font-mono uppercase text-muted-foreground mb-1">TREND</span>
-              <span className={cn(
-                "font-display font-bold text-lg",
-                isBullish ? "text-green-500" : isBearish ? "text-red-500" : "text-foreground"
-              )}>
-                {analysis?.indicators.trend || "NEUTRAL"}
+            <div
+              className={cn(
+                "hidden md:flex flex-col items-center justify-center w-24 h-24 rounded-2xl border-2 backdrop-blur-sm",
+                isBullish
+                  ? "bg-green-500/5 border-green-500/30"
+                  : isBearish
+                    ? "bg-red-500/5 border-red-500/30"
+                    : "bg-muted/5 border-muted",
+              )}
+            >
+              <span className="text-[10px] font-mono uppercase text-muted-foreground mb-1">
+                TREND
+              </span>
+              <span
+                className={cn(
+                  "font-display font-bold text-lg",
+                  isBullish
+                    ? "text-green-500"
+                    : isBearish
+                      ? "text-red-500"
+                      : "text-foreground",
+                )}
+              >
+                {analysis?.indicators?.trend || "NEUTRAL"}
               </span>
             </div>
           </div>
@@ -87,7 +107,6 @@ export default function Dashboard() {
 
         {/* Main Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          
           {/* Left Column: Chart & Summary (8 cols) */}
           <div className="lg:col-span-8 space-y-6">
             {/* Chart */}
@@ -106,7 +125,9 @@ export default function Dashboard() {
 
             {/* AI Summary */}
             <section className="bg-card/30 rounded-xl p-6 border border-border/50">
-              <h2 className="text-sm text-muted-foreground font-mono mb-3 uppercase">Analysis Summary</h2>
+              <h2 className="text-sm text-muted-foreground font-mono mb-3 uppercase">
+                Analysis Summary
+              </h2>
               {isLoading ? (
                 <div className="space-y-2">
                   <div className="h-4 w-3/4 bg-muted animate-pulse rounded" />
@@ -134,69 +155,104 @@ export default function Dashboard() {
               </>
             ) : (
               <>
-                <IndicatorCard 
-                  title="MACD MOMENTUM" 
-                  value={analysis!.indicators.macd}
+                <IndicatorCard
+                  title="MACD MOMENTUM"
+                  value={analysis?.indicators?.macd}
                   icon={<BarChart2 className="w-4 h-4" />}
                 >
                   <div className="mt-2 text-xs font-mono text-muted-foreground flex justify-between">
                     <span>HISTOGRAM</span>
-                    <span className={cn(
-                      (analysis!.indicators.macd.histogram || 0) > 0 ? "text-green-400" : "text-red-400"
-                    )}>
-                      {analysis!.indicators.macd.histogram?.toFixed(4)}
+                    <span
+                      className={cn(
+                        (analysis?.indicators?.macd?.histogram || 0) > 0
+                          ? "text-green-400"
+                          : "text-red-400",
+                      )}
+                    >
+                      {analysis?.indicators?.macd?.histogram?.toFixed(4)}
                     </span>
                   </div>
                   <div className="w-full bg-muted/30 h-1.5 rounded-full mt-2 overflow-hidden">
-                    <div 
-                      className={cn("h-full transition-all duration-500", (analysis!.indicators.macd.histogram || 0) > 0 ? "bg-green-500" : "bg-red-500")}
-                      style={{ width: `${Math.min(Math.abs((analysis!.indicators.macd.histogram || 0) * 50), 100)}%` }} 
+                    <div
+                      className={cn(
+                        "h-full transition-all duration-500",
+                        (analysis?.indicators?.macd?.histogram || 0) > 0
+                          ? "bg-green-500"
+                          : "bg-red-500",
+                      )}
+                      style={{
+                        width: `${Math.min(Math.abs((analysis?.indicators?.macd?.histogram || 0) * 50), 100)}%`,
+                      }}
                     />
                   </div>
                 </IndicatorCard>
 
-                <IndicatorCard 
-                  title="STOCHASTIC OSC" 
-                  value={analysis!.indicators.stochastic}
+                <IndicatorCard
+                  title="STOCHASTIC OSC"
+                  value={analysis?.indicators?.stochastic}
                   icon={<RefreshCcw className="w-4 h-4" />}
                 >
                   <div className="grid grid-cols-2 gap-4 mt-2">
                     <div>
-                      <div className="text-[10px] text-muted-foreground font-mono">FAST %K</div>
-                      <div className="text-sm font-mono text-foreground">{analysis!.indicators.stochastic.k?.toFixed(1)}</div>
+                      <div className="text-[10px] text-muted-foreground font-mono">
+                        FAST %K
+                      </div>
+                      <div className="text-sm font-mono text-foreground">
+                        {analysis?.indicators?.stochastic?.k?.toFixed(1)}
+                      </div>
                     </div>
                     <div>
-                      <div className="text-[10px] text-muted-foreground font-mono">SLOW %D</div>
-                      <div className="text-sm font-mono text-foreground">{analysis!.indicators.stochastic.d?.toFixed(1)}</div>
+                      <div className="text-[10px] text-muted-foreground font-mono">
+                        SLOW %D
+                      </div>
+                      <div className="text-sm font-mono text-foreground">
+                        {analysis?.indicators?.stochastic?.d?.toFixed(1)}
+                      </div>
                     </div>
                   </div>
                   <div className="w-full bg-muted/30 h-1.5 rounded-full mt-2 overflow-hidden relative">
                     {/* Range markers */}
                     <div className="absolute left-[20%] top-0 bottom-0 w-0.5 bg-white/10" />
                     <div className="absolute left-[80%] top-0 bottom-0 w-0.5 bg-white/10" />
-                    <div 
+                    <div
                       className="h-full bg-blue-500 transition-all duration-500"
-                      style={{ width: `${analysis!.indicators.stochastic.k}%` }} 
+                      style={{
+                        width: `${analysis?.indicators?.stochastic?.k || 0}%`,
+                      }}
                     />
                   </div>
                 </IndicatorCard>
 
                 <div className="bg-card rounded-xl p-5 border border-border/50">
-                  <h3 className="font-display text-sm font-semibold tracking-wider text-muted-foreground mb-4">KEY LEVELS</h3>
+                  <h3 className="font-display text-sm font-semibold tracking-wider text-muted-foreground mb-4">
+                    KEY LEVELS
+                  </h3>
                   <div className="space-y-3">
                     <div className="flex justify-between items-center text-sm">
-                      <span className="text-red-400/80 font-mono text-xs">RESISTANCE</span>
-                      <span className="font-mono text-foreground">{analysis!.levels.resistance[0]?.toLocaleString()}</span>
+                      <span className="text-red-400/80 font-mono text-xs">
+                        RESISTANCE
+                      </span>
+                      <span className="font-mono text-foreground">
+                        {analysis?.indicators?.resistance?.toLocaleString()}
+                      </span>
                     </div>
                     <div className="h-px bg-gradient-to-r from-transparent via-border to-transparent" />
                     <div className="flex justify-between items-center text-sm">
-                      <span className="text-blue-400/80 font-mono text-xs">CURRENT</span>
-                      <span className="font-mono text-foreground font-bold">{analysis!.price.toLocaleString()}</span>
+                      <span className="text-blue-400/80 font-mono text-xs">
+                        CURRENT
+                      </span>
+                      <span className="font-mono text-foreground font-bold">
+                        {analysis?.indicators?.price?.toLocaleString()}
+                      </span>
                     </div>
                     <div className="h-px bg-gradient-to-r from-transparent via-border to-transparent" />
                     <div className="flex justify-between items-center text-sm">
-                      <span className="text-green-400/80 font-mono text-xs">SUPPORT</span>
-                      <span className="font-mono text-foreground">{analysis!.levels.support[0]?.toLocaleString()}</span>
+                      <span className="text-green-400/80 font-mono text-xs">
+                        SUPPORT
+                      </span>
+                      <span className="font-mono text-foreground">
+                        {analysis?.indicators?.support?.toLocaleString()}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -208,7 +264,9 @@ export default function Dashboard() {
         {/* History Log */}
         <div className="bg-card rounded-xl border border-border/50 overflow-hidden">
           <div className="p-4 border-b border-border/50 bg-muted/10">
-            <h2 className="text-sm font-display tracking-wider text-muted-foreground">ACTIVITY LOG</h2>
+            <h2 className="text-sm font-display tracking-wider text-muted-foreground">
+              ACTIVITY LOG
+            </h2>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
@@ -222,17 +280,19 @@ export default function Dashboard() {
               </thead>
               <tbody className="divide-y divide-border/30">
                 <AnimatePresence>
-                  {history?.slice(0, 10).map((log) => {
+                  {history?.data?.slice(0, 10).map((log: any) => {
                     const data = log.data as KewltechAnalysis;
                     return (
-                      <motion.tr 
+                      <motion.tr
                         key={log.id}
                         initial={{ opacity: 0, x: -20 }}
                         animate={{ opacity: 1, x: 0 }}
                         className="hover:bg-muted/10 transition-colors font-mono"
                       >
                         <td className="px-6 py-4 text-muted-foreground">
-                          {log.timestamp ? format(new Date(log.timestamp), "HH:mm:ss") : "-"}
+                          {log.timestamp
+                            ? format(new Date(log.timestamp), "HH:mm:ss")
+                            : "-"}
                         </td>
                         <td className="px-6 py-4 font-medium">
                           ${parseFloat(log.price).toLocaleString()}
@@ -241,13 +301,17 @@ export default function Dashboard() {
                           {data?.summary || "Analyzing..."}
                         </td>
                         <td className="px-6 py-4 text-right">
-                          <span className={cn(
-                            "px-2 py-1 rounded text-[10px] uppercase border",
-                            data?.indicators?.trend === 'bullish' ? "bg-green-500/10 text-green-400 border-green-500/20" :
-                            data?.indicators?.trend === 'bearish' ? "bg-red-500/10 text-red-400 border-red-500/20" :
-                            "bg-gray-500/10 text-gray-400 border-gray-500/20"
-                          )}>
-                            {data?.indicators?.trend || "NEUTRAL"}
+                          <span
+                            className={cn(
+                              "px-2 py-1 rounded text-[10px] uppercase border",
+                              data?.trend === "bullish"
+                                ? "bg-green-500/10 text-green-400 border-green-500/20"
+                                : data?.trend === "bearish"
+                                  ? "bg-red-500/10 text-red-400 border-red-500/20"
+                                  : "bg-gray-500/10 text-gray-400 border-gray-500/20",
+                            )}
+                          >
+                            {data?.trend || "NEUTRAL"}
                           </span>
                         </td>
                       </motion.tr>
@@ -256,7 +320,7 @@ export default function Dashboard() {
                 </AnimatePresence>
               </tbody>
             </table>
-            {(!history || history.length === 0) && (
+            {(!history?.data || history.data.length === 0) && (
               <div className="p-8 text-center text-muted-foreground font-mono text-sm">
                 No historical data recorded yet.
               </div>
