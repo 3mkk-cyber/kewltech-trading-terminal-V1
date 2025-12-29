@@ -1,8 +1,9 @@
 import type { Express } from "express";
+
 import type { Server } from "http";
 import { storage } from "./storage";
 import { api } from "@shared/routes";
-import { KewltechAnalysis } from "@shared/schema";
+import { KewltechAnalysis, type IndicatorSignal } from "@shared/schema";
 import axios from "axios";
 // We will use 'technicalindicators' package. Ensure to install it.
 import { MACD, Stochastic, RSI } from "technicalindicators";
@@ -96,7 +97,6 @@ export async function registerRoutes(
 
       // 5. Store analysis result
       const analysis: KewltechAnalysis = {
-        id: Date.now(),
         timestamp: Date.now(),
         symbol: symbol,
         price: currentPrice,
@@ -140,6 +140,21 @@ export async function registerRoutes(
       res.status(500).json({
         success: false,
         message: error.message || "Failed to perform market analysis",
+      });
+    }
+  });
+
+  // Get analysis history
+  app.get(api.analysis.history.path, async (req, res) => {
+    try {
+      const symbol = req.params.symbol.toUpperCase();
+      const history = await storage.getAnalysisHistory(symbol);
+      res.json(history);
+    } catch (error: any) {
+      console.error("History error:", error);
+      res.status(500).json({
+        success: false,
+        message: error.message || "Failed to fetch history",
       });
     }
   });

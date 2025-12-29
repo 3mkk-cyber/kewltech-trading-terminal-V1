@@ -11,7 +11,7 @@ export function useLiveAnalysis(symbol: string) {
       const res = await fetch(url);
       if (!res.ok) throw new Error("Failed to fetch analysis");
       // The API returns a custom object matching KewltechAnalysis
-      return await res.json() as KewltechAnalysis;
+      return (await res.json()) as KewltechAnalysis;
     },
     refetchInterval: 5000, // Poll every 5s
   });
@@ -27,6 +27,6 @@ export function useAnalysisHistory(symbol: string) {
       if (!res.ok) throw new Error("Failed to fetch history");
       return await res.json();
     },
-    refetchInterval: 10000, // Poll history less frequently
+    refetchInterval: 10000, //Poll history less frequently
   });
 }
