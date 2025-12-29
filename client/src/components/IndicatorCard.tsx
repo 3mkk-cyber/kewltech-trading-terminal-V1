@@ -67,7 +67,7 @@ export function IndicatorCard({ title, value, icon, children, className }: Indic
             "text-2xl font-mono font-bold tracking-tight",
             isBuy ? "text-green-400" : isSell ? "text-red-400" : "text-foreground"
           )}>
-            {value.value.toFixed(2)}
+            {value?.value?.toFixed(2) ?? "0.00"}
           </span>
         </div>
         
