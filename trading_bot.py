@@ -884,24 +884,146 @@ class TradingBot:
                 # Send signal to web API for browser display
                 self._send_signal_to_api(signal, finalized_signal)
                 
-                # TODO: Here you would add logic to actually place the trade via Woofi Pro's private API
-                # Example:
-                # order_response = self.api_client.place_order(
-                #     symbol=finalized_signal.symbol,
-                #     side="buy" if finalized_signal.trade_type == "long" else "sell",
-                #     type="market", # or "limit"
-                #     quantity=finalized_signal.position_size
-                #     # price=finalized_signal.entry_price # if limit order
-                # )
-                # if order_response and order_response.get('success'):
-                #    logger.info(f"  -> Order PLACED for {finalized_signal.symbol}. ID: {order_response.get('orderId', 'N/A')}")
-                #    self.active_trades.append(ActiveTrade(signal=finalized_signal, entry_time=datetime.utcnow(), entry_order_id=order_response.get('orderId')))
-                # else:
-                #    logger.error(f"  -> FAILED to place order for {finalized_signal.symbol}: {order_response.get('message', 'Unknown Error')}")
+                # ===== PAPER TRADING SIMULATION (ENABLED) =====
+                # Simulate order execution at market price
+                logger.info(f"\n\033[92m{'='*60}")
+                logger.info(f"[PAPER TRADING] Executing simulated order for {finalized_signal.symbol}")
+                logger.info(f"{'='*60}\033[0m")
+                
+                try:
+                    # Get current market price for order execution
+                    current_price_data = self.api_client.get_current_price(finalized_signal.symbol)
+                    if current_price_data:
+                        market_price = current_price_data.get('last', finalized_signal.entry_price)
+                        execution_price = market_price  # Simulate market order execution at current price
+                    else:
+                        execution_price = finalized_signal.entry_price  # Fallback to signal entry price
+                        logger.warning(f"  Could not fetch market price, using signal entry price: {execution_price:.4f}")
+                    
+                    # Create paper trade record
+                    order_id = f"PAPER_{finalized_signal.symbol}_{datetime.utcnow().timestamp()}"
+                    active_trade = ActiveTrade(
+                        signal=finalized_signal,
+                        entry_time=datetime.utcnow(),
+                        entry_order_id=order_id,
+                        status="OPEN"
+                    )
+                    
+                    # Override entry price with actual execution price
+                    active_trade.signal.entry_price = execution_price
+                    
+                    # Add to active trades
+                    self.active_trades.append(active_trade)
+                    
+                    logger.info(f"  ✓ Order EXECUTED (PAPER TRADING)")
+                    logger.info(f"    Order ID: {order_id}")
+                    logger.info(f"    Entry Price: ${execution_price:.4f}")
+                    logger.info(f"    Position Size: {finalized_signal.position_size:.4f} {finalized_signal.symbol}")
+                    logger.info(f"    Stop Loss: ${finalized_signal.stop_loss_price:.4f}")
+                    logger.info(f"    Take Profit: ${finalized_signal.take_profit_price:.4f}")
+                    logger.info(f"    Risk Amount: ${finalized_signal.risk_amount_usd:.2f}")
+                    logger.info(f"    Active Trades: {len(self.active_trades)}")
+                    logger.info(f"\033[92m{'='*60}\033[0m\n")
+                    
+                except Exception as e:
+                    logger.error(f"  ✗ FAILED to execute paper trade for {finalized_signal.symbol}: {str(e)}")
             else:
                 logger.warning(f"  -> Signal for {signal.symbol} discarded by risk management or calculation failed.")
+        
+        # Check for profit/loss on open trades
+        self._check_active_trades_for_exit()
+        
         logger.info(f"--- End of Signal Processing ---")
 
+    def _check_active_trades_for_exit(self):
+        """Check if any open trades hit SL or TP levels"""
+        if not self.active_trades:
+            return
+        
+        trades_to_close = []
+        for idx, trade in enumerate(self.active_trades):
+            if trade.status != "OPEN":
+                continue
+            
+            try:
+                # Get current market price
+                current_price_data = self.api_client.get_current_price(trade.signal.symbol)
+                if not current_price_data:
+                    continue
+                
+                current_price = current_price_data.get('last', 0)
+                entry_price = trade.signal.entry_price
+                stop_loss = trade.signal.stop_loss_price
+                take_profit = trade.signal.take_profit_price
+                
+                exit_reason = None
+                exit_price = None
+                
+                # Check for long trade exits
+                if trade.signal.trade_type == "long":
+                    if current_price >= take_profit:
+                        exit_reason = "TAKE_PROFIT"
+                        exit_price = take_profit
+                    elif current_price <= stop_loss:
+                        exit_reason = "STOP_LOSS"
+                        exit_price = stop_loss
+                
+                # Check for short trade exits
+                elif trade.signal.trade_type == "short":
+                    if current_price <= take_profit:
+                        exit_reason = "TAKE_PROFIT"
+                        exit_price = take_profit
+                    elif current_price >= stop_loss:
+                        exit_reason = "STOP_LOSS"
+                        exit_price = stop_loss
+                
+                # Close trade if exit condition met
+                if exit_reason and exit_price:
+                    trade.exit_time = datetime.utcnow()
+                    trade.exit_price = exit_price
+                    trade.status = "CLOSED"
+                    
+                    # Calculate P&L
+                    if trade.signal.trade_type == "long":
+                        pnl = (exit_price - entry_price) * trade.signal.position_size
+                    else:  # short
+                        pnl = (entry_price - exit_price) * trade.signal.position_size
+                    
+                    trade.pnl_usd = pnl
+                    trade.fees_usd = pnl * 0.0005  # Assume 0.05% fee
+                    net_pnl = pnl - trade.fees_usd
+                    
+                    logger.info(f"\n\033[95m{'='*60}")
+                    logger.info(f"[PAPER TRADING] Trade Closed - {exit_reason}")
+                    logger.info(f"{'='*60}\033[0m")
+                    logger.info(f"  Symbol: {trade.signal.symbol}")
+                    logger.info(f"  Entry Price: ${entry_price:.4f}")
+                    logger.info(f"  Exit Price: ${exit_price:.4f}")
+                    logger.info(f"  Position Size: {trade.signal.position_size:.4f}")
+                    logger.info(f"  Gross P&L: ${pnl:.2f}")
+                    logger.info(f"  Fees: ${trade.fees_usd:.2f}")
+                    logger.info(f"  Net P&L: ${net_pnl:.2f}")
+                    logger.info(f"  Duration: {trade.exit_time - trade.entry_time}")
+                    
+                    if net_pnl > 0:
+                        logger.info(f"\033[92m  ✓ WINNER!\033[0m")
+                    else:
+                        logger.info(f"\033[91m  ✗ LOSER\033[0m")
+                    
+                    logger.info(f"  Remaining Trades: {len(self.active_trades) - 1}")
+                    logger.info(f"\033[95m{'='*60}\033[0m\n")
+                    
+                    trades_to_close.append(idx)
+            
+            except Exception as e:
+                logger.error(f"Error checking trade exit for {trade.signal.symbol}: {str(e)}")
+        
+        # Log summary of open trades
+        if self.active_trades:
+            open_count = sum(1 for t in self.active_trades if t.status == "OPEN")
+            if open_count > 0:
+                logger.info(f"[PAPER TRADING] {open_count} trade(s) still open")
+    
     def run(self):
         logger.info("Starting Kewltech-Inspired Trading Bot...")
         logger.info(f"Symbols: {MONITORED_SYMBOLS}, Scan Interval: {SCAN_INTERVAL_SECONDS}s")
