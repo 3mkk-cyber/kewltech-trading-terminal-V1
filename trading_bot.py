@@ -14,7 +14,7 @@ import json
 import logging
 import time
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Tuple
 import numpy as np
@@ -28,9 +28,7 @@ Configuration for Kewltech-Inspired Trading Bot
 """
 
 # --- API Configuration ---
-# Using Woofi Pro API (no geolocking restrictions)
 WOOFI_BASE_URL = "https://api.woo.org"
-COINGECKO_BASE_URL = "https://api.coingecko.com/api/v3"  # Fallback (free, no geolocking)
 # TODO: Add your Woofi Pro API Key and Secret if using private endpoints
 # WOOFI_API_KEY = os.environ.get("WOOFI_API_KEY")
 # WOOFI_API_SECRET = os.environ.get("WOOFI_API_SECRET")
@@ -46,15 +44,16 @@ CANDLE_LIMIT_FOR_SR_ANALYSIS = 100 # General S/R analysis lookback
 WEDGE_LOOKBACK_CANDLES = 150 # Candles to look back for wedge patterns
 WEDGE_MIN_PIVOTS_FOR_TRENDLINE = 4 # Min pivot points for trendline fit
 WEDGE_APEX_PROXIMITY_THRESHOLD_RATIO = 0.4 # Nearness to apex for breakout
-WEDGE_MIN_R_SQUARED = 0.5 # Min R-squared for trendline validity
+WEDGE_MIN_R_SQUARED = 0.35 # Min R-squared for trendline validity (lowered to detect more patterns)
+TRENDLINE_SLOPE_DIFF_THRESHOLD = 0.0001  # Minimum slope difference for convergence
 
 ORB_DURATION_MINUTES = 15 # Opening Range duration in minutes
 ORB_BREAKOUT_BUFFER_FACTOR = 1.001 # Buffer for breakout (e.g., 0.1%)
 ORB_RISK_REWARD_RATIO = 1.5 # Target profit as multiple of risk
 
 # --- Bot Operation Parameters ---
-MONITORED_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'ADAUSDT', 'DOGEUSDT', 'MATICUSDT', 'AVAXUSDT', 'LINKUSDT']
-ORB_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'] # Symbols for ORB strategy
+MONITORED_SYMBOLS = ['SPOT_BTC_USDT', 'SPOT_ETH_USDT', 'SPOT_SOL_USDT', 'SPOT_ADA_USDT', 'SPOT_DOGE_USDT', 'SPOT_POL_USDT']
+ORB_SYMBOLS = ['SPOT_BTC_USDT', 'SPOT_ETH_USDT', 'SPOT_SOL_USDT'] # Symbols for ORB strategy
 
 SCAN_INTERVAL_SECONDS = 60 # Scanning frequency in seconds
 
@@ -242,11 +241,16 @@ class WoofiProAPIClient:
             response = self.session.get(url, params=params, timeout=self.timeout)
             response.raise_for_status()
             data = response.json()
-            if data.get('success') or data.get('code') == 0: # Woofi often uses 'code': 0 for success
+            # Check for success: 'success' field is True OR 'code' field is 0 (or absent)
+            code = data.get('code')
+            success = data.get('success')
+            
+            if success == True or code == 0 or (code is None and success is None and 'rows' in data):
                 return data
             else:
-                error_message = data.get('message', f"Unknown API Error. Response: {data}")
-                logger.error(f"API Error for {url}: {error_message}")
+                # API returned an error code
+                error_message = data.get('message', f"Unknown API Error")
+                logger.error(f"API Error for {url}: Code {code}, Message: {error_message}")
                 return None
         except requests.exceptions.HTTPError as e:
             logger.error(f"HTTP error for {url}: {e.response.status_code} - {e.response.text}")
@@ -261,53 +265,72 @@ class WoofiProAPIClient:
         return None
 
     def get_all_symbols(self) -> Optional[List[Dict[str, Any]]]:
-        logger.info("Fetching all symbols from Woofi Pro...")
-        data = self._make_request("/v1/public/symbols")
-        if data and 'result' in data and 'symbols' in data['result']:
-            symbols = data['result']['symbols']
-            logger.info(f"Successfully fetched {len(symbols)} symbols from Woofi Pro.")
+        logger.info("Fetching all symbols...")
+        data = self._make_request("/v1/public/info")
+        if data and 'rows' in data:
+            symbols = data['rows']
+            logger.info(f"Successfully fetched {len(symbols)} symbols.")
             return symbols
-        logger.warning("Failed to fetch symbols from Woofi Pro.")
+        logger.warning("Failed to fetch symbols.")
         return None
 
     def get_klines(self, symbol: str, interval: str, limit: int) -> Optional[List[Kline]]:
-        logger.debug(f"Fetching {limit} {interval} klines for {symbol} from Woofi Pro...")
-        params = {'symbol': symbol, 'interval': interval, 'limit': limit}
-        data = self._make_request("/v1/market/klines", params=params)
-        if data and 'result' in data and 'list' in data['result']:
-            klines_raw = data['result']['list']
+        logger.debug(f"Fetching {limit} {interval} klines for {symbol}...")
+        params = {'symbol': symbol, 'type': interval, 'limit': limit}
+        data = self._make_request("/v1/kline", params=params)
+        if data and 'rows' in data:
+            klines_raw = data['rows']
             processed_klines = []
             for k_data in klines_raw:
                 try:
+                    # WooFi API format: {"open":x, "close":x, "low":x, "high":x, "volume":x, "amount":x, "symbol":"x", "type":"x, "start_timestamp":x, "end_timestamp":x}
                     processed_klines.append(Kline(
-                        open_time=datetime.fromtimestamp(int(k_data[0])/1000),
-                        open=float(k_data[1]), high=float(k_data[2]), low=float(k_data[3]),
-                        close=float(k_data[4]), volume=float(k_data[5]),
-                        close_time=datetime.fromtimestamp(int(k_data[6])/1000),
-                        quote_asset_volume=float(k_data[7]), number_of_trades=int(k_data[8]),
-                        taker_buy_base_asset_volume=float(k_data[9]),
-                        taker_buy_quote_asset_volume=float(k_data[10])
+                        open_time=datetime.fromtimestamp(int(k_data['start_timestamp'])/1000, tz=timezone.utc),
+                        open=float(k_data['open']),
+                        high=float(k_data['high']),
+                        low=float(k_data['low']),
+                        close=float(k_data['close']),
+                        volume=float(k_data['volume']),
+                        close_time=datetime.fromtimestamp(int(k_data['end_timestamp'])/1000, tz=timezone.utc),
+                        quote_asset_volume=float(k_data.get('amount', 0)),
+                        number_of_trades=0,
+                        taker_buy_base_asset_volume=0,
+                        taker_buy_quote_asset_volume=0
                     ))
-                except (IndexError, TypeError, ValueError) as e:
+                except (KeyError, TypeError, ValueError) as e:
                     logger.warning(f"Skipping malformed kline for {symbol}: {k_data}. Error: {e}")
                     continue
-            # Woofi Pro API returns newest first
-            logger.debug(f"Successfully fetched {len(processed_klines)} klines for {symbol}.")
-            return processed_klines  # Already newest first
-        elif data and 'result' in data and not data['result']['list']:
-            logger.info(f"No klines returned for {symbol} {interval} with limit {limit}.")
-            return []
+            # Reverse to chronological order (oldest first) for pattern detection
+            processed_klines.reverse()
+            logger.debug(f"Successfully fetched {len(processed_klines)} klines for {symbol} (oldest to newest).")
+            return processed_klines
+        elif data and 'rows' in data and not data['rows']:
+             logger.info(f"No klines returned for {symbol} {interval} with limit {limit}.")
+             return []
         logger.warning(f"Failed to fetch klines for {symbol} {interval}.")
         return None
 
-    def get_ticker_24hr(self, symbol: str) -> Optional[Dict[str, Any]]:
-        logger.debug(f"Fetching 24hr ticker for {symbol} from Woofi Pro...")
-        params = {'symbol': symbol}
-        data = self._make_request("/v1/market/ticker/24hr", params=params)
-        if data and 'result' in data:
-            logger.debug(f"Successfully fetched 24hr ticker for {symbol}.")
-            return data['result']
-        logger.warning(f"Failed to fetch 24hr ticker for {symbol}.")
+    def get_current_price(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """Get current price and volume data from latest 1m kline (ticker endpoint is down)"""
+        logger.debug(f"Fetching current price for {symbol}...")
+        params = {'symbol': symbol, 'type': '1m', 'limit': 1}
+        data = self._make_request("/v1/kline", params=params)
+        if data and 'rows' in data and len(data['rows']) > 0:
+            kline = data['rows'][0]
+            # Transform to ticker-like format for compatibility
+            ticker_data = {
+                's': symbol,  # symbol
+                'c': kline['close'],  # last price
+                'o': kline['open'],  # open price
+                'h': kline['high'],  # high price
+                'l': kline['low'],  # low price
+                'v': kline['volume'],  # volume
+                'q': kline['amount'],  # quote volume
+                'E': kline['end_timestamp'],  # timestamp
+            }
+            logger.debug(f"Successfully fetched current price for {symbol}: {kline['close']}")
+            return ticker_data
+        logger.warning(f"Failed to fetch current price for {symbol}.")
         return None
 
     # Placeholder for future private API methods (e.g., place_order)
@@ -329,12 +352,24 @@ class PatternRecognizer:
         self.active_patterns: Dict[str, Pattern] = {} # {symbol_interval: Pattern}
 
     def _detect_wedge_pattern(self, symbol: str, interval: str, klines: List[Kline]) -> Optional[Pattern]:
-        if len(klines) < WEDGE_LOOKBACK_CANDLES * 0.8: return None
-        # get_klines returns newest first. Pivot logic assumes chronological order for trendline fitting.
-        # If klines are newest first, and we use list indices as x-coords, this is fine.
+        if len(klines) < WEDGE_LOOKBACK_CANDLES * 0.8: 
+            logger.debug(f"Not enough klines for {symbol} {interval}: {len(klines)} < {WEDGE_LOOKBACK_CANDLES * 0.8}")
+            return None
+        # Klines are now in chronological order (oldest first) after reversal in get_klines
+        # Check EMA trend for confirmation
+        ema_trends = get_ema_trend(klines, EMA_PERIODS)
+        logger.debug(f"{symbol} {interval} EMA trends: {ema_trends}")
+        
         pivots = get_pivot_points(klines, pivot_window=2) # Smaller window for more pivots
+        logger.info(f"{symbol} {interval}: Found {len(pivots)} pivot points (Curr: {klines[-1].close:.4f})")
+        if pivots:
+            for p in pivots[-5:]:  # Log last 5 pivots
+                logger.debug(f"  {p.type.upper()} pivot: ${p.price:.4f} at index {p.index}")
+                logger.debug(f"  {p.type.upper()} pivot: ${p.price:.4f} at index {p.index}")
+        
         if not pivots: return None
         highs, lows = [p for p in pivots if p.type == 'high'], [p for p in pivots if p.type == 'low']
+        logger.debug(f"{symbol} {interval}: {len(highs)} highs, {len(lows)} lows")
         if len(highs) < WEDGE_MIN_PIVOTS_FOR_TRENDLINE or len(lows) < WEDGE_MIN_PIVOTS_FOR_TRENDLINE: return None
 
         # Fit trendlines to most recent N pivots. Ensure chronological order for fit_trendline.
@@ -347,6 +382,7 @@ class PatternRecognizer:
 
         slope_h, intercept_h, r_sq_h = fit_trendline(recent_highs_chrono)
         slope_l, intercept_l, r_sq_l = fit_trendline(recent_lows_chrono)
+        logger.info(f"{symbol} {interval} Trendlines: Upper(slope={slope_h:.6f},R²={r_sq_h:.4f}) Lower(slope={slope_l:.6f},R²={r_sq_l:.4f})")
         if None in (slope_h, intercept_h, r_sq_h) or None in (slope_l, intercept_l, r_sq_l): return None
 
         detected_pattern = None
@@ -363,9 +399,21 @@ class PatternRecognizer:
         
         pattern_info = None
         
-        # Bullish Wedge (Falling Wedge)
-        if slope_h < -TRENDLINE_SLOPE_DIFF_THRESHOLD and slope_l < -TRENDLINE_SLOPE_DIFF_THRESHOLD and \
-           abs(slope_h) > abs(slope_l) and r_sq_h > WEDGE_MIN_R_SQUARED and r_sq_l > WEDGE_MIN_R_SQUARED:
+        # Check dominant EMA trend (use 34 period as primary indicator)
+        primary_ema_trend = ema_trends.get(34, 'insufficient_data')
+        
+        # Log convergence analysis for debugging
+        slope_diff = abs(slope_h - slope_l)
+        convergence_ratio = slope_diff / max(abs(slope_h), abs(slope_l), 0.0001)
+        logger.debug(f"{symbol} {interval}: Convergence analysis - slope_diff={slope_diff:.6f}, ratio={convergence_ratio:.4f}, H_R²={r_sq_h:.4f}, L_R²={r_sq_l:.4f}")
+        
+        # Bullish Wedge (Falling Wedge) - prefer in downtrend or sideways (reversal pattern)
+        bullish_slope_crit = slope_h < -TRENDLINE_SLOPE_DIFF_THRESHOLD and slope_l < -TRENDLINE_SLOPE_DIFF_THRESHOLD
+        bullish_conv_crit = abs(slope_h) > abs(slope_l)
+        bullish_rsq_crit = r_sq_h > WEDGE_MIN_R_SQUARED and r_sq_l > WEDGE_MIN_R_SQUARED
+        
+        if bullish_slope_crit and bullish_conv_crit and bullish_rsq_crit:
+            logger.info(f"{symbol} {interval}: [BULLISH WEDGE FORMING] Both slopes negative (downtrend), convergence detected (H_slope={slope_h:.6f}, L_slope={slope_l:.6f})")
             if abs(slope_h - slope_l) > TRENDLINE_SLOPE_DIFF_THRESHOLD:
                 max_pivot_idx = max(p.index for p in recent_highs_chrono + recent_lows_chrono)
                 apex_idx_approx = (intercept_l - intercept_h) / (slope_h - slope_l)
@@ -387,10 +435,16 @@ class PatternRecognizer:
                                 upper_pivots=recent_highs_chrono, lower_pivots=recent_lows_chrono
                             )
                             # print(f"Debug: Potential Bullish Wedge detected on {interval_str} at {klines[-1].close_time}")
+        else:
+            logger.debug(f"{symbol} {interval}: Bullish Wedge - slope_crit={bullish_slope_crit}, conv_crit={bullish_conv_crit}, rsq_crit={bullish_rsq_crit}")
 
         # Bearish Wedge (Rising Wedge)
-        elif slope_h > TRENDLINE_SLOPE_DIFF_THRESHOLD and slope_l > TRENDLINE_SLOPE_DIFF_THRESHOLD and \
-             slope_l > slope_h and r_sq_h > WEDGE_MIN_R_SQUARED and r_sq_l > WEDGE_MIN_R_SQUARED:
+        bearish_slope_crit = slope_h > TRENDLINE_SLOPE_DIFF_THRESHOLD and slope_l > TRENDLINE_SLOPE_DIFF_THRESHOLD
+        bearish_conv_crit = slope_l > slope_h
+        bearish_rsq_crit = r_sq_h > WEDGE_MIN_R_SQUARED and r_sq_l > WEDGE_MIN_R_SQUARED
+        
+        if bearish_slope_crit and bearish_conv_crit and bearish_rsq_crit:
+            logger.info(f"{symbol} {interval}: [BEARISH WEDGE FORMING] Both slopes positive (uptrend), convergence detected (H_slope={slope_h:.6f}, L_slope={slope_l:.6f})")
             if abs(slope_h - slope_l) > TRENDLINE_SLOPE_DIFF_THRESHOLD:
                 max_pivot_idx = max(p.index for p in recent_highs_chrono + recent_lows_chrono)
                 apex_idx_approx = (intercept_l - intercept_h) / (slope_h - slope_l)
@@ -409,49 +463,27 @@ class PatternRecognizer:
                                 upper_pivots=recent_highs_chrono, lower_pivots=recent_lows_chrono
                             )
                             # print(f"Debug: Potential Bearish Wedge detected on {interval_str} at {klines[-1].close_time}")
+        else:
+            logger.debug(f"{symbol} {interval}: Bearish Wedge - slope_crit={bearish_slope_crit}, conv_crit={bearish_conv_crit}, rsq_crit={bearish_rsq_crit}")
         return detected_pattern
 
     def _check_wedge_breakout(self, symbol: str, interval: str, pattern: Pattern, current_klines: List[Kline]) -> Optional[TradeSignal]:
         if not pattern or not all(hasattr(pattern, attr) for attr in ['upper_trendline_slope', 'lower_trendline_slope', 'upper_trendline_intercept', 'lower_trendline_intercept']):
             return None
         
+        # Klines are in chronological order (oldest first), so newest is at index -1
         last_candle, prev_candle = current_klines[-1], current_klines[-2] if len(current_klines) > 1 else current_klines[-1]
         
-        # Trendline y = mx + c. x is kline list index (0 to N-1, newest at N-1).
-        # current_klines from API are newest first. So, last_candle is at current_klines[0].
-        # For trendline calculation, if pattern was identified on a list where newest was last,
-        # then indices used for fitting were based on that. We need to be consistent.
-        # If current_klines are newest first, then for trendline value at "current" (most recent) candle,
-        # its index for trendline formula should be 0 if pattern was fitted on data where newest was also index 0.
-        # This is tricky. Let's assume pattern was fitted on data where index increases with time.
-        # If get_klines returns newest first, then our list for _detect_wedge_pattern was newest first.
-        # The pivots from that list also have "index" relative to that newest-first list.
-        # When fitting trendline, x_coords were these pivots.index. So, for a new candle (newest),
-        # its conceptual "index" for the trendline formula would be -1 (if pattern was fitted on data up to index 0).
-        # This needs careful thought on indexing.
-        # Let's assume klines are newest first. The pattern was detected on these klines.
-        # The pivots used have indices from this list (e.g., 0, 1, 2... where 0 is newest).
-        # So, for last_candle (which is klines[0]), its x_coord for trendline is 0.
-        # For prev_candle (klines[1]), its x_coord is 1.
-        
-        # Re-evaluating: get_pivot_points and fit_trendline expect chronological data (oldest first) for x_coords.
-        # If klines are newest-first, we should reverse them for pivot detection and fitting,
-        # or adjust x_coords accordingly.
-        # Let's assume for now that the trendline slopes/intercepts are for data where index 0 is oldest.
-        # So, if current_klines are newest-first, their chronological index is reversed.
-        # This is a common source of bugs. For simplicity, let's assume the pattern's
-        # trendline parameters are already adjusted for the klines order (newest first).
-        # And we use 0 for the newest candle, 1 for the one before, etc.
+        # Trendline y = mx + c, where x is the index in chronological order
+        # The pattern was fitted on chronological data, so we use actual indices
+        last_idx = len(current_klines) - 1  # Index of newest candle
+        prev_idx = len(current_klines) - 2 if len(current_klines) > 1 else last_idx
 
         # For a Bullish Wedge, breakout is above the upper trendline
         if "Bullish Wedge" in pattern.pattern_type:
-            # Calculate upper trendline value at last_candle's conceptual chronological index (e.g., 0 for newest)
-            # This is still ambiguous. Let's use the actual list index from the klines used for detection.
-            # If klines are newest first, and pattern was detected on these, then last_candle is at index 0 of this list.
-            # The trendline was fitted using pivots whose indices were from this list.
-            # So, to get trendline value for the newest candle (index 0 in current_klines list):
-            utl_val_at_last = pattern.upper_trendline_intercept + pattern.upper_trendline_slope * 0 # Assuming 0 for newest
-            utl_val_at_prev = pattern.upper_trendline_intercept + pattern.upper_trendline_slope * 1 # Assuming 1 for prev
+            # Calculate trendline values at the current and previous candle indices
+            utl_val_at_last = pattern.upper_trendline_intercept + pattern.upper_trendline_slope * last_idx
+            utl_val_at_prev = pattern.upper_trendline_intercept + pattern.upper_trendline_slope * prev_idx
             
             if last_candle.close > utl_val_at_last and prev_candle.close <= utl_val_at_prev: # Check for crossover
                 entry_price = last_candle.close
@@ -478,8 +510,8 @@ class PatternRecognizer:
 
         # For a Bearish Wedge, breakout is below the lower trendline
         elif "Bearish Wedge" in pattern.pattern_type:
-            ltl_val_at_last = pattern.lower_trendline_intercept + pattern.lower_trendline_slope * 0
-            ltl_val_at_prev = pattern.lower_trendline_intercept + pattern.lower_trendline_slope * 1
+            ltl_val_at_last = pattern.lower_trendline_intercept + pattern.lower_trendline_slope * last_idx
+            ltl_val_at_prev = pattern.lower_trendline_intercept + pattern.lower_trendline_slope * prev_idx
 
             if last_candle.close < ltl_val_at_last and prev_candle.close >= ltl_val_at_prev:
                 entry_price = last_candle.close
@@ -502,13 +534,13 @@ class PatternRecognizer:
     def _detect_orb_breakout(self, symbol: str, current_time_utc: datetime) -> Optional[TradeSignal]:
         if symbol not in ORB_SYMBOLS or symbol not in MONITORED_SYMBOLS: return None
         num_1m, num_5m = 60*24+10, (60*24)//5+10 # Fetch enough for the day
-        klines_1m = self.api_client.get_klines(symbol, "1m", num_1m) # Newest first
-        klines_5m = self.api_client.get_klines(symbol, "5m", num_5m) # Newest first
+        klines_1m = self.api_client.get_klines(symbol, "1m", num_1m) # Returns chronological (oldest first)
+        klines_5m = self.api_client.get_klines(symbol, "5m", num_5m) # Returns chronological (oldest first)
         
         if not klines_1m or not klines_5m: return None
         
-        day_start_utc = current_time_utc.replace(hour=0, minute=0, second=0, microsecond=0)
-        # klines from API are newest first. Filter by close_time.
+        day_start_utc = current_time_utc.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=timezone.utc)
+        # Klines are in chronological order (oldest first). Filter by close_time.
         daily_klines_1m = [k for k in klines_1m if k.close_time >= day_start_utc]
         daily_klines_5m = [k for k in klines_5m if k.close_time >= day_start_utc]
         if not daily_klines_1m or not daily_klines_5m: return None
@@ -529,8 +561,8 @@ class PatternRecognizer:
         if not post_orb_klines: return None # No candles formed yet after ORB
 
         # Look for a clear breakout: close beyond ORB high/low
-        # We'll check the last closed 5m candle
-        last_post_orb_candle = post_orb_klines[0] # Newest 5m candle after ORB
+        # Check the most recent closed 5m candle (last in chronological list)
+        last_post_orb_candle = post_orb_klines[-1] # Most recent 5m candle after ORB
         
         signal = None
         entry_price, signal_time = last_post_orb_candle.close, last_post_orb_candle.close_time
@@ -561,9 +593,24 @@ class PatternRecognizer:
             logger.info(f"ORB BREAKOUT (SHORT) for {symbol} {interval}. Entry: {entry_price:.4f}")
         return signal
 
+    def _detect_kewltech_pattern(self, symbol: str, interval: str, klines: List[Kline]) -> Optional[Pattern]:
+        """
+        Kewltech pattern detection using EMA trends as primary filter.
+        Detects wedge patterns where EMA trends align with price structure.
+        """
+        if len(klines) < WEDGE_MIN_PIVOTS_FOR_TRENDLINE * 2:
+            return None
+        
+        # Get EMA trends first as primary filter
+        ema_trends = get_ema_trend(klines, EMA_PERIODS)
+        logger.debug(f"{symbol} {interval} EMA Trends: {ema_trends}")
+        
+        # Use wedge detection as the pattern recognition
+        return self._detect_wedge_pattern(symbol, interval, klines)
+
     def scan_and_generate_signals(self, current_time_utc: datetime) -> List[TradeSignal]:
         generated_signals: List[TradeSignal] = []
-        swing_intervals = ["1h", "4h"] 
+        swing_intervals = ["15m", "1h"] 
         for symbol in MONITORED_SYMBOLS:
             logger.debug(f"Scanning {symbol}...")
             for interval in swing_intervals:
@@ -573,13 +620,16 @@ class PatternRecognizer:
                     # WEDGE_LOOKBACK_CANDLES is the number of candles to fetch.
                     klines_for_detection = self.api_client.get_klines(symbol, interval, WEDGE_LOOKBACK_CANDLES)
                     if klines_for_detection: # API returns newest first
-                        # Wedge detection logic might implicitly or explicitly expect chronological (oldest first).
-                        # If get_pivot_points and fit_trendline expect chronological, we might need to reverse.
-                        # For now, assume they handle newest-first or the logic is abstract enough.
-                        detected_pattern = self._detect_wedge_pattern(symbol, interval, klines_for_detection)
+                        # Use Kewltech method with EMA-filtered pattern detection
+                        detected_pattern = self._detect_kewltech_pattern(symbol, interval, klines_for_detection)
                         if detected_pattern: 
                             self.active_patterns[pattern_key] = detected_pattern
-                            logger.info(f"Potential Pattern Detected: {detected_pattern.pattern_type} for {symbol} {interval}")
+                            # Send pattern to web API
+                            self._send_pattern_to_api(symbol, interval, detected_pattern.pattern_type, is_forming=True)
+                            # Log EMA context for the pattern
+                            ema_trends = get_ema_trend(klines_for_detection, EMA_PERIODS)
+                            logger.info(f"[KEWLTECH] Potential Pattern Detected: {detected_pattern.pattern_type} for {symbol} {interval}")
+                            logger.info(f"  EMA Trends: {', '.join([f'EMA{k}:{v}' for k, v in ema_trends.items()])}")
                 else:
                     # If pattern exists, check for breakout using recent klines
                     # Fetch fewer klines for breakout check to be efficient
@@ -587,13 +637,18 @@ class PatternRecognizer:
                     if recent_klines_for_breakout_check and len(recent_klines_for_breakout_check) >= 2 : # Need at least two candles
                          breakout_signal = self._check_wedge_breakout(symbol, interval, self.active_patterns[pattern_key], recent_klines_for_breakout_check)
                          if breakout_signal:
+                             # Send pattern breakout to API
+                             self._send_pattern_to_api(symbol, interval, self.active_patterns[pattern_key].pattern_type, is_forming=False)
                              generated_signals.append(breakout_signal)
                              del self.active_patterns[pattern_key] 
                              logger.info(f"Breakout signal generated and pattern {pattern_key} removed.")
-            
+            # ORB Detection (Opening Range Breakout)
             orb_signal = self._detect_orb_breakout(symbol, current_time_utc)
-            if orb_signal: 
+            if orb_signal:
+                logger.info(f"[ORB SIGNAL] {orb_signal.symbol} {orb_signal.pattern_details.pattern_type}: Entry={orb_signal.entry_price:.4f}, SL={orb_signal.stop_loss_price:.4f}, TP={orb_signal.take_profit_price:.4f}")
                 generated_signals.append(orb_signal)
+            else:
+                logger.debug(f"[ORB] No breakout detected for {symbol} at {current_time_utc.strftime('%Y-%m-%d %H:%M:%S')}")
         
         # Clean up old patterns
         patterns_to_remove = []
@@ -671,43 +726,145 @@ class TradingBot:
         self.pattern_recognizer = PatternRecognizer(api_client=self.api_client)
         self.risk_manager = RiskManager(account_equity_usd=ACCOUNT_EQUITY_USD, risk_percentage_per_trade=RISK_PERCENTAGE_PER_TRADE)
         self.active_trades: List[ActiveTrade] = [] 
+        self.web_api_url = "http://localhost:5000"  # Web interface API
         logger.info("TradingBot initialized.")
+
+    def _send_signal_to_api(self, signal: TradeSignal, finalized_signal: TradeSignal):
+        """Send trade signal to web API for display in browser"""
+        try:
+            signal_data = {
+                "id": f"{signal.symbol}_{signal.signal_time.timestamp()}",
+                "symbol": signal.symbol,
+                "strategy": signal.strategy,
+                "tradeType": signal.trade_type,
+                "entryPrice": float(signal.entry_price),
+                "stopLossPrice": float(signal.stop_loss_price),
+                "takeProfitPrice": float(signal.take_profit_price),
+                "positionSize": float(finalized_signal.position_size) if finalized_signal.position_size else 0,
+                "riskAmount": float(finalized_signal.risk_amount_usd) if finalized_signal.risk_amount_usd else 0,
+                "signalTime": int(signal.signal_time.timestamp() * 1000),
+                "confidence": 85,  # Can be calculated based on pattern strength
+                "details": {
+                    "interval": signal.interval,
+                    "patternDetails": signal.pattern_details.__dict__ if hasattr(signal.pattern_details, '__dict__') else {}
+                }
+            }
+            response = requests.post(f"{self.web_api_url}/api/bot/signals", json=signal_data, timeout=5)
+            if response.status_code == 200:
+                logger.debug(f"Signal sent to API successfully: {signal.symbol}")
+            else:
+                logger.warning(f"Failed to send signal to API: {response.status_code}")
+        except Exception as e:
+            logger.warning(f"Could not send signal to web API: {e}")
+
+    def _send_pattern_to_api(self, symbol: str, interval: str, pattern_type: str, is_forming: bool):
+        """Send detected pattern to web API for display"""
+        try:
+            pattern_data = {
+                "id": f"{symbol}_{interval}_{pattern_type}_{datetime.utcnow().timestamp()}",
+                "symbol": symbol,
+                "interval": interval,
+                "patternType": pattern_type,
+                "detectionTime": int(datetime.utcnow().timestamp() * 1000),
+                "status": "forming" if is_forming else "confirmed",
+                "details": {}
+            }
+            response = requests.post(f"{self.web_api_url}/api/bot/patterns", json=pattern_data, timeout=5)
+            if response.status_code == 200:
+                logger.debug(f"Pattern sent to API: {symbol} {pattern_type}")
+            else:
+                logger.warning(f"Failed to send pattern to API: {response.status_code}")
+        except Exception as e:
+            logger.warning(f"Could not send pattern to web API: {e}")
+
+    def _send_market_scan_to_api(self, current_time_utc: datetime, signals: List[TradeSignal]):
+        """Send complete market scan data to web API"""
+        try:
+            # Get current symbol data
+            symbols_data = []
+            for symbol in MONITORED_SYMBOLS:
+                try:
+                    ticker = self.api_client.get_current_price(symbol)
+                    if ticker:
+                        symbols_data.append({
+                            "symbol": symbol,
+                            "price": float(ticker.get('c', 0)),
+                            "change1h": 0,  # Would need to calculate from klines
+                            "emaStatus": {},  # Would need to track EMA trends
+                            "volume": float(ticker.get('v', 0))
+                        })
+                except Exception as e:
+                    logger.debug(f"Error getting price for {symbol}: {e}")
+
+            scan_data = {
+                "timestamp": int(current_time_utc.timestamp() * 1000),
+                "symbols": symbols_data,
+                "patterns": [],  # Populated from pattern recognizer
+                "signals": [
+                    {
+                        "id": f"{s.symbol}_{s.signal_time.timestamp()}",
+                        "symbol": s.symbol,
+                        "strategy": s.strategy,
+                        "tradeType": s.trade_type,
+                        "entryPrice": float(s.entry_price),
+                        "stopLossPrice": float(s.stop_loss_price),
+                        "takeProfitPrice": float(s.take_profit_price),
+                        "signalTime": int(s.signal_time.timestamp() * 1000)
+                    }
+                    for s in signals
+                ]
+            }
+            
+            response = requests.post(f"{self.web_api_url}/api/bot/scan", json=scan_data, timeout=5)
+            if response.status_code == 200:
+                logger.debug("Market scan data sent to API")
+            else:
+                logger.warning(f"Failed to send market scan: {response.status_code}")
+        except Exception as e:
+            logger.warning(f"Could not send market scan to API: {e}")
 
     def _print_live_data_header(self):
         # ANSI escape codes for color and clearing screen (basic cyberpunk feel)
         # \033[0;0H\033[2J  # Clear screen, move cursor to 0,0
         print("\033[0;0H\033[2J") 
-        print("="*80)
+        print("="*120)
         print(" Kewltech-Inspired Trading Bot - Live Data Feed & Signal Generation")
-        print("="*80)
-        print(f"{'Symbol':<12} {'Price (USD)':<15} {'24h Chg %':<12} {'24h Vol (Base)':<15} {'Last Update':<20}")
-        print("-"*80)
+        print("="*120)
+        print(f"{'Symbol':<15} {'Price':<12} {'1h Chg%':<10} {'EMA Trend (13/34/244/610)':<35} {'Volume':<15} {'Last Update':<20}")
+        print("-"*120)
 
-    def _print_live_data_row(self, ticker_data: Dict[str, Any]):
-        # Kewltech PDF mentions specific data points. We'll show what's easily available.
+    def _print_live_data_row(self, ticker_data: Dict[str, Any], ema_trends: Dict[int, str] = None):
+        # Display current price data from klines
         symbol = ticker_data.get('s', 'N/A')
-        last_price = ticker_data.get('c', 'N/A') # Last price
-        percent_change = ticker_data.get('P', 'N/A') # 24h percentage change
-        volume = ticker_data.get('v', 'N/A') # 24h volume in base asset
+        last_price = ticker_data.get('c', 'N/A') # Last price (close)
+        open_price = ticker_data.get('o', 'N/A') # Open price
+        volume = ticker_data.get('v', 'N/A') # Volume in base asset
         last_update_ts = ticker_data.get('E', None) # Timestamp of last update
+
+        # Calculate percentage change from open to close
+        percent_change = 'N/A'
+        if isinstance(last_price, (int, float)) and isinstance(open_price, (int, float)) and open_price > 0:
+            percent_change = ((last_price - open_price) / open_price) * 100
 
         last_update_str = "N/A"
         if last_update_ts:
             try:
-                # Woofi Pro timestamp is usually milliseconds
+                # WooFi timestamp is in milliseconds
                 last_update_str = datetime.fromtimestamp(last_update_ts / 1000).strftime('%Y-%m-%d %H:%M:%S')
             except (TypeError, OSError):
                 last_update_str = "Invalid Date"
         
-        # Basic color coding for price change (optional, can be expanded)
-        # price_color = ""
-        # if isinstance(percent_change, float):
-        #     if percent_change > 0: price_color = "\033[92m" # Green
-        #     elif percent_change < 0: price_color = "\033[91m" # Red
-        #     else: price_color = "\033[97m" # White/Default
-        # print(f"{price_color}{symbol:<12}\033[0m {last_price:<15.2f}{percent_change:<12.2f}%{volume:<15,.0f}{last_update_str:<20}\033[0m")
-
-        print(f"{symbol:<12} {last_price:<15.2f} {percent_change:<12.2f}% {volume:<15,.0f} {last_update_str:<20}")
+        # Format EMA trends
+        ema_str = "N/A"
+        if ema_trends:
+            trends = [str(ema_trends.get(p, '?'))[:3].upper() for p in [13, 34, 244, 610]]
+            ema_str = '/'.join(trends)
+        
+        # Format output
+        if isinstance(percent_change, float):
+            print(f"{symbol:<15} {last_price:<12.2f} {percent_change:<10.2f}% {ema_str:<35} {volume:<15,.4f} {last_update_str:<20}")
+        else:
+            print(f"{symbol:<15} {last_price:<12} {percent_change:<10} {ema_str:<35} {volume:<15} {last_update_str:<20}")
 
 
     def _process_signals(self, signals: List[TradeSignal]):
@@ -723,6 +880,10 @@ class TradingBot:
             finalized_signal = self.risk_manager.calculate_trade_parameters(signal)
             if finalized_signal and finalized_signal.position_size is not None:
                 logger.info(f"  Finalized: Pos Size: {finalized_signal.position_size:.4f} {finalized_signal.symbol}, Risk: ${finalized_signal.risk_amount_usd:.2f}")
+                
+                # Send signal to web API for browser display
+                self._send_signal_to_api(signal, finalized_signal)
+                
                 # TODO: Here you would add logic to actually place the trade via Woofi Pro's private API
                 # Example:
                 # order_response = self.api_client.place_order(
@@ -748,33 +909,50 @@ class TradingBot:
         logger.info("Press Ctrl+C to stop.")
         try:
             while True:
-                cycle_start_time = datetime.utcnow()
+                cycle_start_time = datetime.now(timezone.utc)
                 
                 # --- Live Data Feed Display ---
                 self._print_live_data_header()
-                # Fetch and print ticker for a few key symbols (e.g., first 3 monitored symbols)
-                # This is a simplified live feed. A more robust one might use curses or a web UI.
-                # For now, we'll print a few lines of ticker data.
-                # Woofi Pro /v1/market/ticker/24hr can take multiple symbols.
-                # Example: /v1/market/ticker/24hr?symbols=BTCUSDT,ETHUSDT
-                # For simplicity, we'll fetch one by one or rely on individual symbol fetching if API supports it.
-                # The provided WoofiProAPIClient.get_ticker_24hr takes one symbol.
-                symbols_for_live_feed = MONITORED_SYMBOLS[:3] # Show top 3 for brevity in terminal
+                
+                # Fetch EMA trends for all symbols
+                symbols_for_live_feed = MONITORED_SYMBOLS[:5] # Show top 3 for brevity in terminal
+                ema_cache = {}  # Cache EMA data
+                for sym in MONITORED_SYMBOLS:
+                    klines = self.api_client.get_klines(sym, "15m", 100)  # Get 15m data for EMA
+                    if klines:
+                        ema_cache[sym] = get_ema_trend(klines, EMA_PERIODS)
+                
                 for sym in symbols_for_live_feed:
-                    ticker = self.api_client.get_ticker_24hr(sym)
+                    ticker = self.api_client.get_current_price(sym)
                     if ticker:
-                        self._print_live_data_row(ticker)
+                        self._print_live_data_row(ticker, ema_cache.get(sym))
                     else:
-                        print(f"{sym:<12} {'Data N/A':<15} {'N/A':<12} {'N/A':<15} {'N/A':<20}")
-                print("-"*80)
+                        print(f"{sym:<15} {'Data N/A':<12} {'N/A':<10} {'N/A':<35} {'N/A':<15} {'N/A':<20}")
+                print("-"*120)
                 # --- End Live Data Feed Display ---
 
                 logger.info(f"\n\033[93m--- Market Scan Cycle at {cycle_start_time.strftime('%Y-%m-%d %H:%M:%S')} UTC ---\033[0m") # Bright green for cycle start
+                logger.info(f"\nEMA Trends Summary:")
+                for sym in MONITORED_SYMBOLS:
+                    if sym in ema_cache:
+                        trends = ema_cache[sym]
+                        logger.info(f"  {sym:<15}: EMA13={trends.get(13, 'N/A'):<12} EMA34={trends.get(34, 'N/A'):<12} EMA244={trends.get(244, 'N/A'):<12} EMA610={trends.get(610, 'N/A')}")
                 
                 trade_signals = self.pattern_recognizer.scan_and_generate_signals(cycle_start_time)
                 self._process_signals(trade_signals)
                 
-                cycle_end_time = datetime.utcnow()
+                # Send market scan data to web API
+                self._send_market_scan_to_api(cycle_start_time, trade_signals)
+                
+                # Log pattern status
+                if self.pattern_recognizer.active_patterns:
+                    logger.info(f"\nActive Patterns ({len(self.pattern_recognizer.active_patterns)}):")
+                    for pattern_key, pattern in self.pattern_recognizer.active_patterns.items():
+                        logger.info(f"  {pattern_key}: {pattern.pattern_type} (detected {(cycle_start_time - pattern.detection_time).total_seconds()/60:.1f} min ago)")
+                else:
+                    logger.info("\nNo active patterns at this moment.")
+                
+                cycle_end_time = datetime.now(timezone.utc)
                 sleep_duration = timedelta(seconds=SCAN_INTERVAL_SECONDS) - (cycle_end_time - cycle_start_time)
                 
                 if sleep_duration.total_seconds() > 0:

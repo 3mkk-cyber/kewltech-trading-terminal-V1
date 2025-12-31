@@ -4,7 +4,7 @@ services:
     container_name: kewltech-postgres
     environment:
       POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
+      POSTGRES_PASSWORD: kewltech_secure_2025
       POSTGRES_DB: kewltech_trading
     ports:
       - "5432:5432"

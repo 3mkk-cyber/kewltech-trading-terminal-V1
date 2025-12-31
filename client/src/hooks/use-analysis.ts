@@ -30,6 +30,34 @@ export function useLiveAnalysis(symbol: string) {
   });
 }
 
+// Helper for batch analysis (all symbols)
+export function useBatchAnalysis() {
+  return useQuery({
+    queryKey: ["analysis-batch"],
+    queryFn: async () => {
+      const url = "/api/analysis/batch";
+      console.log(`Fetching batch analysis from: ${url}`);
+      
+      try {
+        const res = await fetch(url);
+        if (!res.ok) {
+          const error = await res.text();
+          console.error(`Batch API error: ${res.status} - ${error}`);
+          throw new Error(`Failed to fetch batch analysis: ${res.status}`);
+        }
+        const response = (await res.json()) as { success: boolean; data: KewltechAnalysis[]; timestamp: number };
+        console.log("Batch analysis received:", response);
+        return response.data;
+      } catch (error) {
+        console.error("Error fetching batch analysis:", error);
+        throw error;
+      }
+    },
+    refetchInterval: 5000, // Poll every 5s
+    retry: 2,
+  });
+}
+
 // Helper for historical logs
 export function useAnalysisHistory(symbol: string) {
   return useQuery({

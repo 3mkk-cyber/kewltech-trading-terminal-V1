@@ -34,7 +34,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async saveAnalysis(analysis: KewltechAnalysis): Promise<void> {
-    return await this.logAnalysis(analysis.symbol, analysis.price, analysis);
+    await this.logAnalysis(analysis.symbol, analysis.price, analysis);
   }
 
   async getRecentAnalyses(limit: number): Promise<AnalysisLog[]> {

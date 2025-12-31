@@ -1,0 +1,6 @@
+2025-12-31 18:56:24,164 - __main__ - INFO - Starting Kewltech Trading Bot - Data Persistence Module
+2025-12-31 18:56:24,209 - __main__ - ERROR - Fatal error: connection to server at "localhost" (::1), port 5432 failed: FATAL:  password authentication failed for user "user"
+
+2025-12-31 18:57:48,586 - __main__ - INFO - Starting Kewltech Trading Bot - Data Persistence Module
+2025-12-31 18:57:48,621 - __main__ - ERROR - Fatal error: connection to server at "localhost" (::1), port 5432 failed: FATAL:  password authentication failed for user "user"
+

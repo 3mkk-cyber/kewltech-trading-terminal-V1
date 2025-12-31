@@ -5,66 +5,255 @@ import { storage } from "./storage";
 import { api } from "@shared/routes";
 import { KewltechAnalysis, type IndicatorSignal } from "@shared/schema";
 import axios from "axios";
+import { botSignalsManager } from "./botSignals";
 // We will use 'technicalindicators' package. Ensure to install it.
 import { MACD, Stochastic, RSI } from "technicalindicators";
+
+// Cache for market data to avoid rate limiting
+const dataCache = new Map<string, { data: any; timestamp: number }>();
+const CACHE_DURATION = 60000; // 1 minute cache
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express,
 ): Promise<Server> {
+  // Define symbols for batch analysis
+  const SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "ADAUSDT", "DOGEUSDT", "POLUSDT"];
+
+  // BATCH ANALYSIS ENDPOINT - Must come BEFORE :symbol route to be matched first
+  app.get("/api/analysis/batch", async (req, res) => {
+    try {
+      console.log(`[API] Batch analysis requested for symbols: ${SYMBOLS.join(", ")}`);
+      
+      const analyses = await Promise.all(
+        SYMBOLS.map(async (symbol) => {
+          try {
+            const binanceSymbol = symbol;
+            const now = Math.floor(Date.now());
+            const from = now - 100 * 3600000; // 100 hours ago
+
+            // Check cache first
+            const cached = dataCache.get(binanceSymbol);
+            let klines: any[] = [];
+            
+            if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+              klines = cached.data;
+            } else {
+              const response = await axios.get("https://api.binance.com/api/v3/klines", {
+                params: {
+                  symbol: binanceSymbol,
+                  interval: "1h",
+                  startTime: from,
+                  endTime: now,
+                  limit: 100,
+                },
+                timeout: 10000,
+              });
+              klines = response.data;
+              dataCache.set(binanceSymbol, { data: klines, timestamp: Date.now() });
+            }
+
+            if (!klines || klines.length === 0) {
+              return null;
+            }
+
+            const closes = klines.map((k: any[]) => parseFloat(k[4]));
+            const highs = klines.map((k: any[]) => parseFloat(k[2]));
+            const lows = klines.map((k: any[]) => parseFloat(k[3]));
+            const currentPrice = closes[closes.length - 1];
+
+            if (!currentPrice || currentPrice <= 0) {
+              return null;
+            }
+
+            // Calculate indicators
+            const macdInput = {
+              values: closes,
+              fastPeriod: 12,
+              slowPeriod: 26,
+              signalPeriod: 9,
+              SimpleMAOscillator: false,
+              SimpleMASignal: false,
+            };
+            let macdResult: any[] = [];
+            try {
+              macdResult = MACD.calculate(macdInput);
+            } catch (err) {
+              macdResult = [];
+            }
+            const lastMacd = macdResult?.length > 0 ? macdResult[macdResult.length - 1] : null;
+
+            const stochInput = {
+              high: highs,
+              low: lows,
+              close: closes,
+              period: 14,
+              signalPeriod: 3,
+            };
+            let stochResult: any[] = [];
+            try {
+              stochResult = Stochastic.calculate(stochInput);
+            } catch (err) {
+              stochResult = [];
+            }
+            const lastStoch = stochResult?.length > 0 ? stochResult[stochResult.length - 1] : null;
+
+            const rsiInput = {
+              values: closes,
+              period: 14,
+            };
+            let rsiResult: any[] = [];
+            try {
+              rsiResult = RSI.calculate(rsiInput);
+            } catch (err) {
+              rsiResult = [];
+            }
+            const lastRSI = rsiResult?.length > 0 ? rsiResult[rsiResult.length - 1] : 50;
+
+            const recentLows = lows.slice(-20);
+            const recentHighs = highs.slice(-20);
+            const support = Math.min(...recentLows);
+            const resistance = Math.max(...recentHighs);
+
+            let signal: IndicatorSignal = "neutral";
+            let trend: "bullish" | "bearish" | "neutral" = "neutral";
+
+            if (lastMacd && lastMacd.MACD > lastMacd.signal && lastRSI < 70) {
+              signal = "buy";
+              trend = "bullish";
+            } else if (lastMacd && lastMacd.MACD < lastMacd.signal && lastRSI > 30) {
+              signal = "sell";
+              trend = "bearish";
+            }
+
+            const analysis: KewltechAnalysis = {
+              timestamp: Date.now(),
+              symbol: symbol,
+              price: currentPrice,
+              indicators: {
+                trend: trend as "bullish" | "bearish" | "neutral",
+                macd: lastMacd
+                  ? {
+                      value: lastMacd.MACD || 0,
+                      signal: (lastMacd.MACD > lastMacd.signal ? "buy" : lastMacd.MACD < lastMacd.signal ? "sell" : "neutral") as IndicatorSignal,
+                      histogram: lastMacd.histogram || 0,
+                    }
+                  : { value: 0, signal: "neutral" as IndicatorSignal, histogram: 0 },
+                stochastic: lastStoch
+                  ? {
+                      value: lastStoch.k || 0,
+                      k: lastStoch.k || 0,
+                      d: lastStoch.d || 0,
+                      signal: (lastStoch.k < 20
+                        ? "buy"
+                        : lastStoch.k > 80
+                          ? "sell"
+                          : "neutral") as IndicatorSignal,
+                    }
+                  : { value: 50, k: 50, d: 50, signal: "neutral" as IndicatorSignal },
+                rsi: {
+                  value: lastRSI || 50,
+                  signal: (lastRSI < 30
+                    ? "buy"
+                    : lastRSI > 70
+                      ? "sell"
+                      : "neutral") as IndicatorSignal,
+                },
+              },
+              levels: {
+                support: [support],
+                resistance: [resistance],
+              },
+              summary: `Market analysis for ${symbol}: ${trend} trend detected with ${signal} signal. Price: $${currentPrice}`,
+            };
+
+            return analysis;
+          } catch (err) {
+            console.error(`[API] Error analyzing ${symbol}:`, err);
+            return null;
+          }
+        })
+      );
+
+      const validAnalyses = analyses.filter(a => a !== null);
+      console.log(`[API] Batch analysis complete: ${validAnalyses.length}/${SYMBOLS.length} symbols`);
+      
+      res.json({
+        success: true,
+        data: validAnalyses,
+        timestamp: Date.now(),
+      });
+    } catch (error: any) {
+      console.error("[API] Batch analysis error:", error);
+      res.status(500).json({
+        success: false,
+        message: error.message || "Failed to perform batch analysis",
+      });
+    }
+  });
+
+  // SINGLE SYMBOL ANALYSIS ENDPOINT
   app.get(api.analysis.get.path, async (req, res) => {
     try {
       const symbol = req.params.symbol.toUpperCase(); // e.g., BTCUSDT
       console.log(`[API] Received analysis request for symbol: ${symbol}`);
 
-      // 1. Fetch Data from Orderly Network Public API
-      const baseCurrency = symbol.replace("USDT", "");
-      const orderlySymbol = "PERP_" + baseCurrency + "_USDC";
-      const now = Math.floor(Date.now() / 1000);
-      const from = now - 100 * 3600;
+      // 1. Convert symbol format to Binance format (e.g., BTCUSDT)
+      const binanceSymbol = symbol.replace("-USD", "USDT");
+      const now = Math.floor(Date.now());
+      const from = now - 100 * 3600000; // 100 hours ago
 
-      console.log(`[API] Fetching kline data from Orderly for symbol: ${orderlySymbol}`);
+      console.log(`[API] Fetching candlestick data from Binance for symbol: ${binanceSymbol}`);
 
-      let response;
+      let klines: any[] = [];
       try {
-        response = await axios.get(
-          "https://api.orderly.org/v1/tv/kline_history",
-          {
+        // Check cache first
+        const cached = dataCache.get(binanceSymbol);
+        if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+          console.log(`[API] Using cached data for ${binanceSymbol}`);
+          klines = cached.data;
+        } else {
+          // Fetch 1-hour candlesticks from Binance
+          console.log(`[API] Fetching fresh data from Binance for ${binanceSymbol}`);
+          const response = await axios.get("https://api.binance.com/api/v3/klines", {
             params: {
-              symbol: orderlySymbol,
-              resolution: "1h",
-              from: from.toString(),
-              to: now.toString(),
+              symbol: binanceSymbol,
+              interval: "1h",
+              startTime: from,
+              endTime: now,
               limit: 100,
             },
             timeout: 10000,
-          },
-        );
-        console.log(`[API] Orderly API response received:`, {
-          status: response.status,
-          dataKeys: Object.keys(response.data),
-          dataStatus: response.data.s,
-          closesLength: response.data.c?.length,
-        });
+          });
+
+          klines = response.data;
+          
+          // Cache the result
+          dataCache.set(binanceSymbol, { data: klines, timestamp: Date.now() });
+          
+          console.log(`[API] Binance data received:`, {
+            symbol: binanceSymbol,
+            dataPoints: klines.length,
+          });
+        }
       } catch (apiError: any) {
-        console.error(`[API] Orderly API error:`, {
+        console.error(`[API] Binance API error:`, {
           message: apiError.message,
-          code: apiError.code,
-          url: apiError.config?.url,
-          params: apiError.config?.params,
+          symbol: binanceSymbol,
         });
-        throw new Error(`Failed to fetch market data from Orderly API: ${apiError.message}`);
+        throw new Error(`Failed to fetch market data from Binance API: ${apiError.message}`);
       }
 
-      const klineData = response.data;
-      if (klineData.s !== "ok" || !klineData.c || klineData.c.length === 0) {
-        console.error(`[API] Invalid kline data:`, { status: klineData.s, closesLength: klineData.c?.length });
-        throw new Error("No kline data available from API");
+      if (!klines || klines.length === 0) {
+        console.error(`[API] No data received from Binance`);
+        throw new Error("No candlestick data available from Binance");
       }
 
-      const closes = klineData.c;
-      const highs = klineData.h;
-      const lows = klineData.l;
+      // 2. Extract OHLCV data from Binance format
+      // Binance returns: [open_time, open, high, low, close, volume, ...]
+      const closes = klines.map((k: any[]) => parseFloat(k[4]));
+      const highs = klines.map((k: any[]) => parseFloat(k[2]));
+      const lows = klines.map((k: any[]) => parseFloat(k[3]));
       const currentPrice = closes[closes.length - 1];
 
       console.log(`[API] Market data extracted:`, {
@@ -251,6 +440,85 @@ export async function registerRoutes(
     try {
       const analyses = await storage.getRecentAnalyses(10);
       res.json({ success: true, data: analyses });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // Bot Signals Endpoints
+  app.post("/api/bot/signals", (req, res) => {
+    try {
+      const signal = req.body;
+      console.log(`[API] Received bot signal for ${signal.symbol}: ${signal.strategy}`);
+      botSignalsManager.addSignal(signal);
+      res.json({ success: true, message: "Signal recorded", id: signal.id });
+    } catch (error: any) {
+      console.error("[API] Error recording bot signal:", error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  app.get("/api/bot/signals", (req, res) => {
+    try {
+      const symbol = req.query.symbol as string | undefined;
+      const signals = symbol
+        ? botSignalsManager.getSignalsBySymbol(symbol.toUpperCase())
+        : botSignalsManager.getSignals();
+      res.json({ success: true, data: signals });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  app.post("/api/bot/patterns", (req, res) => {
+    try {
+      const pattern = req.body;
+      console.log(`[API] Received bot pattern for ${pattern.symbol}: ${pattern.patternType}`);
+      botSignalsManager.addPattern(pattern);
+      res.json({ success: true, message: "Pattern recorded", id: pattern.id });
+    } catch (error: any) {
+      console.error("[API] Error recording bot pattern:", error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  app.get("/api/bot/patterns", (req, res) => {
+    try {
+      const symbol = req.query.symbol as string | undefined;
+      const patterns = symbol
+        ? botSignalsManager.getPatternsBySymbol(symbol.toUpperCase())
+        : botSignalsManager.getPatterns();
+      res.json({ success: true, data: patterns });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  app.post("/api/bot/scan", (req, res) => {
+    try {
+      const scan = req.body;
+      botSignalsManager.recordMarketScan(scan);
+      res.json({ success: true, message: "Market scan recorded" });
+    } catch (error: any) {
+      console.error("[API] Error recording market scan:", error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  app.get("/api/bot/scan/latest", (req, res) => {
+    try {
+      const scan = botSignalsManager.getLatestScan();
+      res.json({ success: true, data: scan || null });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  app.get("/api/bot/scans", (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 20;
+      const scans = botSignalsManager.getScans(limit);
+      res.json({ success: true, data: scans });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
     }
