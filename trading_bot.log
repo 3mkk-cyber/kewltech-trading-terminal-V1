@@ -1,0 +1,115 @@
+[97m2025-12-30 22:46:55,472 - __main__ - INFO - RiskManager initialized. Equity: $10,000.00, Risk per Trade: 1.00%[0m
+[97m2025-12-30 22:46:55,472 - __main__ - INFO - TradingBot initialized.[0m
+[97m2025-12-30 22:46:55,473 - __main__ - INFO - Starting Kewltech-Inspired Trading Bot...[0m
+[97m2025-12-30 22:46:55,473 - __main__ - INFO - Symbols: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'ADAUSDT', 'DOGEUSDT', 'MATICUSDT', 'AVAXUSDT', 'LINKUSDT'], Scan Interval: 60s[0m
+[97m2025-12-30 22:46:55,473 - __main__ - INFO - Account Equity: $10,000.00, Risk per Trade: 1.00%[0m
+[97m2025-12-30 22:46:55,473 - __main__ - INFO - Press Ctrl+C to stop.[0m
+[97m2025-12-30 22:46:56,030 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/ticker/24hr: [GW] no upstream server[0m
+[97m2025-12-30 22:46:56,030 - __main__ - WARNING - Failed to fetch 24hr ticker for BTCUSDT.[0m
+[97m2025-12-30 22:46:56,290 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/ticker/24hr: [GW] no upstream server[0m
+[97m2025-12-30 22:46:56,290 - __main__ - WARNING - Failed to fetch 24hr ticker for ETHUSDT.[0m
+[97m2025-12-30 22:46:56,547 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/ticker/24hr: [GW] no upstream server[0m
+[97m2025-12-30 22:46:56,547 - __main__ - WARNING - Failed to fetch 24hr ticker for SOLUSDT.[0m
+[97m2025-12-30 22:46:56,547 - __main__ - INFO - 
+[93m--- Market Scan Cycle at 2025-12-30 21:46:55 UTC ---[0m[0m
+[97m2025-12-30 22:46:56,803 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:46:56,804 - __main__ - WARNING - Failed to fetch klines for BTCUSDT 1h.[0m
+[97m2025-12-30 22:46:57,062 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:46:57,062 - __main__ - WARNING - Failed to fetch klines for BTCUSDT 4h.[0m
+[97m2025-12-30 22:46:57,319 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:46:57,319 - __main__ - WARNING - Failed to fetch klines for BTCUSDT 1m.[0m
+[97m2025-12-30 22:46:57,581 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:46:57,581 - __main__ - WARNING - Failed to fetch klines for BTCUSDT 5m.[0m
+[97m2025-12-30 22:46:57,892 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:46:57,892 - __main__ - WARNING - Failed to fetch klines for ETHUSDT 1h.[0m
+[97m2025-12-30 22:46:58,173 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:46:58,173 - __main__ - WARNING - Failed to fetch klines for ETHUSDT 4h.[0m
+[97m2025-12-30 22:46:58,428 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:46:58,428 - __main__ - WARNING - Failed to fetch klines for ETHUSDT 1m.[0m
+[97m2025-12-30 22:46:58,685 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:46:58,685 - __main__ - WARNING - Failed to fetch klines for ETHUSDT 5m.[0m
+[97m2025-12-30 22:46:58,940 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:46:58,940 - __main__ - WARNING - Failed to fetch klines for SOLUSDT 1h.[0m
+[97m2025-12-30 22:46:59,196 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:46:59,196 - __main__ - WARNING - Failed to fetch klines for SOLUSDT 4h.[0m
+[97m2025-12-30 22:46:59,455 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:46:59,455 - __main__ - WARNING - Failed to fetch klines for SOLUSDT 1m.[0m
+[97m2025-12-30 22:46:59,713 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:46:59,713 - __main__ - WARNING - Failed to fetch klines for SOLUSDT 5m.[0m
+[97m2025-12-30 22:46:59,968 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:46:59,968 - __main__ - WARNING - Failed to fetch klines for ADAUSDT 1h.[0m
+[97m2025-12-30 22:47:00,225 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:47:00,225 - __main__ - WARNING - Failed to fetch klines for ADAUSDT 4h.[0m
+[97m2025-12-30 22:47:00,480 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:47:00,480 - __main__ - WARNING - Failed to fetch klines for DOGEUSDT 1h.[0m
+[97m2025-12-30 22:47:00,738 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:47:00,739 - __main__ - WARNING - Failed to fetch klines for DOGEUSDT 4h.[0m
+[97m2025-12-30 22:47:00,994 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:47:00,994 - __main__ - WARNING - Failed to fetch klines for MATICUSDT 1h.[0m
+[97m2025-12-30 22:47:01,251 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:47:01,251 - __main__ - WARNING - Failed to fetch klines for MATICUSDT 4h.[0m
+[97m2025-12-30 22:47:01,507 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:47:01,508 - __main__ - WARNING - Failed to fetch klines for AVAXUSDT 1h.[0m
+[97m2025-12-30 22:47:01,764 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:47:01,764 - __main__ - WARNING - Failed to fetch klines for AVAXUSDT 4h.[0m
+[97m2025-12-30 22:47:02,021 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:47:02,022 - __main__ - WARNING - Failed to fetch klines for LINKUSDT 1h.[0m
+[97m2025-12-30 22:47:02,278 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:47:02,278 - __main__ - WARNING - Failed to fetch klines for LINKUSDT 4h.[0m
+[97m2025-12-30 22:47:02,278 - __main__ - INFO - Cycle took 6.80s. Sleeping for 53.20s.[0m
+[97m2025-12-30 22:47:55,733 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/ticker/24hr: [GW] no upstream server[0m
+[97m2025-12-30 22:47:55,734 - __main__ - WARNING - Failed to fetch 24hr ticker for BTCUSDT.[0m
+[97m2025-12-30 22:47:55,988 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/ticker/24hr: [GW] no upstream server[0m
+[97m2025-12-30 22:47:55,989 - __main__ - WARNING - Failed to fetch 24hr ticker for ETHUSDT.[0m
+[97m2025-12-30 22:47:56,244 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/ticker/24hr: [GW] no upstream server[0m
+[97m2025-12-30 22:47:56,244 - __main__ - WARNING - Failed to fetch 24hr ticker for SOLUSDT.[0m
+[97m2025-12-30 22:47:56,245 - __main__ - INFO - 
+[93m--- Market Scan Cycle at 2025-12-30 21:47:55 UTC ---[0m[0m
+[97m2025-12-30 22:47:56,503 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:47:56,503 - __main__ - WARNING - Failed to fetch klines for BTCUSDT 1h.[0m
+[97m2025-12-30 22:47:56,758 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:47:56,758 - __main__ - WARNING - Failed to fetch klines for BTCUSDT 4h.[0m
+[97m2025-12-30 22:47:57,014 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:47:57,014 - __main__ - WARNING - Failed to fetch klines for BTCUSDT 1m.[0m
+[97m2025-12-30 22:47:57,271 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:47:57,272 - __main__ - WARNING - Failed to fetch klines for BTCUSDT 5m.[0m
+[97m2025-12-30 22:47:57,527 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:47:57,527 - __main__ - WARNING - Failed to fetch klines for ETHUSDT 1h.[0m
+[97m2025-12-30 22:47:57,782 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:47:57,782 - __main__ - WARNING - Failed to fetch klines for ETHUSDT 4h.[0m
+[97m2025-12-30 22:47:58,038 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:47:58,038 - __main__ - WARNING - Failed to fetch klines for ETHUSDT 1m.[0m
+[97m2025-12-30 22:47:58,294 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:47:58,294 - __main__ - WARNING - Failed to fetch klines for ETHUSDT 5m.[0m
+[97m2025-12-30 22:47:58,554 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:47:58,554 - __main__ - WARNING - Failed to fetch klines for SOLUSDT 1h.[0m
+[97m2025-12-30 22:47:58,810 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:47:58,811 - __main__ - WARNING - Failed to fetch klines for SOLUSDT 4h.[0m
+[97m2025-12-30 22:47:59,065 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:47:59,066 - __main__ - WARNING - Failed to fetch klines for SOLUSDT 1m.[0m
+[97m2025-12-30 22:47:59,325 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:47:59,325 - __main__ - WARNING - Failed to fetch klines for SOLUSDT 5m.[0m
+[97m2025-12-30 22:47:59,583 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:47:59,583 - __main__ - WARNING - Failed to fetch klines for ADAUSDT 1h.[0m
+[97m2025-12-30 22:47:59,838 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:47:59,838 - __main__ - WARNING - Failed to fetch klines for ADAUSDT 4h.[0m
+[97m2025-12-30 22:48:00,093 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:48:00,094 - __main__ - WARNING - Failed to fetch klines for DOGEUSDT 1h.[0m
+[97m2025-12-30 22:48:00,351 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:48:00,352 - __main__ - WARNING - Failed to fetch klines for DOGEUSDT 4h.[0m
+[97m2025-12-30 22:48:00,607 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:48:00,608 - __main__ - WARNING - Failed to fetch klines for MATICUSDT 1h.[0m
+[97m2025-12-30 22:48:00,863 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:48:00,863 - __main__ - WARNING - Failed to fetch klines for MATICUSDT 4h.[0m
+[97m2025-12-30 22:48:01,120 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:48:01,120 - __main__ - WARNING - Failed to fetch klines for AVAXUSDT 1h.[0m
+[97m2025-12-30 22:48:01,376 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:48:01,376 - __main__ - WARNING - Failed to fetch klines for AVAXUSDT 4h.[0m
+[97m2025-12-30 22:48:01,632 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:48:01,632 - __main__ - WARNING - Failed to fetch klines for LINKUSDT 1h.[0m
+[97m2025-12-30 22:48:01,888 - __main__ - ERROR - API Error for https://api.woo.org/v1/market/klines: [GW] no upstream server[0m
+[97m2025-12-30 22:48:01,889 - __main__ - WARNING - Failed to fetch klines for LINKUSDT 4h.[0m
+[97m2025-12-30 22:48:01,889 - __main__ - INFO - Cycle took 6.41s. Sleeping for 53.59s.[0m
+[97m2025-12-30 22:48:40,190 - __main__ - INFO - 
+[91mBot stopped by user.[0m[0m
+[97m2025-12-30 22:48:40,190 - __main__ - INFO - Trading Bot shutting down.[0m

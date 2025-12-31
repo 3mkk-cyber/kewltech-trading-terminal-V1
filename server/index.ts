@@ -2,6 +2,9 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { db } from "./db";
+import { analysisLogs } from "@shared/schema";
+import { sql } from "drizzle-orm";
 
 const app = express();
 const httpServer = createServer(app);
@@ -60,6 +63,23 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Initialize database tables if they don't exist
+  try {
+    console.log("[DB] Checking/Creating database schema...");
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS analysis_logs (
+        id SERIAL PRIMARY KEY,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        price TEXT NOT NULL,
+        data JSONB NOT NULL
+      );
+    `);
+    console.log("[DB] Database schema ready");
+  } catch (dbError: any) {
+    console.warn("[DB] Warning - Could not initialize database:", dbError.message);
+    console.warn("[DB] Server will continue but API may not save data to database");
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -88,8 +108,7 @@ app.use((req, res, next) => {
   httpServer.listen(
     {
       port,
-      host: "0.0.0.0",
-      reusePort: true,
+      host: "127.0.0.1",
     },
     () => {
       log(`serving on port ${port}`);

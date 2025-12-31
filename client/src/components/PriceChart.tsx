@@ -1,10 +1,10 @@
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
-import { AnalysisLog } from "@shared/schema";
+import { KewltechAnalysis } from "@shared/schema";
 import { format } from "date-fns";
 import { Loader2 } from "lucide-react";
 
 interface PriceChartProps {
-  data: AnalysisLog[] | undefined;
+  data: KewltechAnalysis[] | undefined;
   isLoading: boolean;
 }
 
@@ -29,11 +29,11 @@ export function PriceChart({ data, isLoading }: PriceChartProps) {
   }
 
   // Transform data for chart
-  const chartData = data.slice().reverse().map(log => ({
-    time: new Date(log.timestamp || Date.now()).getTime(),
-    price: parseFloat(log.price),
+  const chartData = data.slice().reverse().map(analysis => ({
+    time: analysis.timestamp || Date.now(),
+    price: analysis.price,
     // extract macd if available just for potential overlay (not used yet)
-    // macd: (log.data as any)?.indicators?.macd?.value
+    // macd: analysis.indicators?.macd?.value
   }));
 
   const lastPrice = chartData[chartData.length - 1].price;

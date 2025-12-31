@@ -2,6 +2,7 @@ import { useLiveAnalysis, useAnalysisHistory } from "@/hooks/use-analysis";
 import { IndicatorCard } from "@/components/IndicatorCard";
 import { PriceChart } from "@/components/PriceChart";
 import { format } from "date-fns";
+import { KewltechAnalysis } from "@shared/schema";
 import {
   ArrowUpRight,
   ArrowDownRight,
@@ -24,11 +25,12 @@ export default function Dashboard() {
   if (error) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background text-red-500 font-mono">
-        Error connecting to market data stream.
+        Error connecting to market data stream. Please check your connection.
       </div>
     );
   }
 
+  // Use analysis data if available, even if history fails
   const isBullish = analysis?.indicators?.trend === "bullish";
   const isBearish = analysis?.indicators?.trend === "bearish";
 
@@ -135,7 +137,7 @@ export default function Dashboard() {
                 </div>
               ) : (
                 <p className="text-lg leading-relaxed font-sans text-foreground/90">
-                  {analysis?.summary}
+                  {analysis?.summary || "Analyzing market data..."}
                 </p>
               )}
             </section>
@@ -157,7 +159,7 @@ export default function Dashboard() {
               <>
                 <IndicatorCard
                   title="MACD MOMENTUM"
-                  value={analysis?.indicators?.macd}
+                  value={analysis?.indicators?.macd || { value: 0, signal: "neutral" as const, histogram: 0 }}
                   icon={<BarChart2 className="w-4 h-4" />}
                 >
                   <div className="mt-2 text-xs font-mono text-muted-foreground flex justify-between">
@@ -189,7 +191,7 @@ export default function Dashboard() {
 
                 <IndicatorCard
                   title="STOCHASTIC OSC"
-                  value={analysis?.indicators?.stochastic}
+                  value={analysis?.indicators?.stochastic || { value: 50, k: 50, d: 50, signal: "neutral" as const }}
                   icon={<RefreshCcw className="w-4 h-4" />}
                 >
                   <div className="grid grid-cols-2 gap-4 mt-2">
@@ -233,7 +235,7 @@ export default function Dashboard() {
                         RESISTANCE
                       </span>
                       <span className="font-mono text-foreground">
-                        {analysis?.indicators?.resistance?.toLocaleString()}
+                        ${(analysis?.levels?.resistance?.[0] || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                       </span>
                     </div>
                     <div className="h-px bg-gradient-to-r from-transparent via-border to-transparent" />
@@ -242,7 +244,7 @@ export default function Dashboard() {
                         CURRENT
                       </span>
                       <span className="font-mono text-foreground font-bold">
-                        {analysis?.indicators?.price?.toLocaleString()}
+                        ${(analysis?.price || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                       </span>
                     </div>
                     <div className="h-px bg-gradient-to-r from-transparent via-border to-transparent" />
@@ -251,7 +253,7 @@ export default function Dashboard() {
                         SUPPORT
                       </span>
                       <span className="font-mono text-foreground">
-                        {analysis?.indicators?.support?.toLocaleString()}
+                        ${(analysis?.levels?.support?.[0] || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                       </span>
                     </div>
                   </div>
@@ -280,47 +282,44 @@ export default function Dashboard() {
               </thead>
               <tbody className="divide-y divide-border/30">
                 <AnimatePresence>
-                  {history?.data?.slice(0, 10).map((log: any) => {
-                    const data = log.data as KewltechAnalysis;
-                    return (
-                      <motion.tr
-                        key={log.id}
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        className="hover:bg-muted/10 transition-colors font-mono"
-                      >
-                        <td className="px-6 py-4 text-muted-foreground">
-                          {log.timestamp
-                            ? format(new Date(log.timestamp), "HH:mm:ss")
-                            : "-"}
-                        </td>
-                        <td className="px-6 py-4 font-medium">
-                          ${parseFloat(log.price).toLocaleString()}
-                        </td>
-                        <td className="px-6 py-4 text-muted-foreground truncate max-w-xs">
-                          {data?.summary || "Analyzing..."}
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <span
-                            className={cn(
-                              "px-2 py-1 rounded text-[10px] uppercase border",
-                              data?.trend === "bullish"
-                                ? "bg-green-500/10 text-green-400 border-green-500/20"
-                                : data?.trend === "bearish"
-                                  ? "bg-red-500/10 text-red-400 border-red-500/20"
-                                  : "bg-gray-500/10 text-gray-400 border-gray-500/20",
-                            )}
-                          >
-                            {data?.trend || "NEUTRAL"}
-                          </span>
-                        </td>
-                      </motion.tr>
-                    );
-                  })}
+                  {history?.slice(0, 10).map((analysis: any, idx: number) => (
+                    <motion.tr
+                      key={idx}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className="hover:bg-muted/10 transition-colors font-mono"
+                    >
+                      <td className="px-6 py-4 text-muted-foreground">
+                        {analysis.timestamp
+                          ? format(new Date(analysis.timestamp), "HH:mm:ss")
+                          : "-"}
+                      </td>
+                      <td className="px-6 py-4 font-medium">
+                        ${(analysis.price || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      </td>
+                      <td className="px-6 py-4 text-muted-foreground truncate max-w-xs">
+                        {analysis?.summary || "Analyzing..."}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <span
+                          className={cn(
+                            "px-2 py-1 rounded text-[10px] uppercase border",
+                            analysis?.indicators?.trend === "bullish"
+                              ? "bg-green-500/10 text-green-400 border-green-500/20"
+                              : analysis?.indicators?.trend === "bearish"
+                                ? "bg-red-500/10 text-red-400 border-red-500/20"
+                                : "bg-gray-500/10 text-gray-400 border-gray-500/20",
+                          )}
+                        >
+                          {analysis?.indicators?.trend || "NEUTRAL"}
+                        </span>
+                      </td>
+                    </motion.tr>
+                  ))}
                 </AnimatePresence>
               </tbody>
             </table>
-            {(!history?.data || history.data.length === 0) && (
+            {(!history || history.length === 0) && (
               <div className="p-8 text-center text-muted-foreground font-mono text-sm">
                 No historical data recorded yet.
               </div>
