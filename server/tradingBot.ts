@@ -15,6 +15,11 @@ import {
   MONITORED_SYMBOLS,
   SCAN_INTERVAL_SECONDS,
   MAX_CONCURRENT_TRADES,
+  AUTO_TRADE_ON_PATTERN_DETECTION,
+  AUTO_TRADE_ON_BREAKOUT,
+  AGGRESSIVE_MODE,
+  AUTO_TRADE_ON_PATTERN_DETECTION,
+  AUTO_TRADE_ON_BREAKOUT,
   AGGRESSIVE_5M_SYMBOLS,
   SCAN_5M_ENABLED,
   SCAN_5M_INTERVAL_SECONDS,
@@ -46,6 +51,82 @@ export class TradingBot {
     this.closedTrades = [];
     this.webApiUrl = "http://localhost:5000";
     console.log("TradingBot initialized.");
+  }
+
+  start(): void {
+    console.log("Starting Kewltech-Inspired Trading Bot...");
+    console.log(`Symbols: ${MONITORED_SYMBOLS.join(', ')}, Scan Interval: ${SCAN_INTERVAL_SECONDS}s`);
+    console.log(`Account Equity: $${ACCOUNT_EQUITY_USD.toLocaleString()}, Risk per Trade: ${(RISK_PERCENTAGE_PER_TRADE * 100).toFixed(2)}%`);
+
+    setInterval(async () => {
+      try {
+        await this.performScanCycle();
+      } catch (error: any) {
+        console.error(`\x1b[91mScan cycle error: ${error.message}\x1b[0m`, error);
+      }
+    }, SCAN_INTERVAL_SECONDS * 1000);
+  }
+
+  private async performScanCycle(): Promise<void> {
+    const cycleStartTime = new Date();
+
+    // Live Data Feed Display
+    this.printLiveDataHeader();
+
+    // Fetch EMA trends for all symbols
+    const symbolsForLiveFeed = MONITORED_SYMBOLS.slice(0, 5); // Show top 5 for brevity
+    const emaCache: Record<string, Record<number, string | null>> = {};
+
+    for (const sym of MONITORED_SYMBOLS) {
+      const klines = await this.apiClient.getKlines(sym, "15m", 100);
+      if (klines) {
+        emaCache[sym] = getEMATrend(klines, EMA_PERIODS);
+      }
+    }
+
+    for (const sym of symbolsForLiveFeed) {
+      const ticker = await this.apiClient.getCurrentPrice(sym);
+      if (ticker) {
+        this.printLiveDataRow(ticker, emaCache[sym]);
+      } else {
+        console.log(`${sym.padEnd(15)} ${'Data N/A'.padEnd(12)} ${'N/A'.padEnd(10)} ${'N/A'.padEnd(35)} ${'N/A'.padEnd(15)} ${'N/A'.padEnd(20)}`);
+      }
+    }
+    console.log("-".repeat(120));
+
+    console.log(`\n\\x1b[93m--- Market Scan Cycle at ${cycleStartTime.toISOString()} UTC ---\\x1b[0m`);
+    console.log(`[TRADING STATUS] Open Trades: ${this.activeTrades.length}/${MAX_CONCURRENT_TRADES} | Auto Trade: ${AUTO_TRADE_ON_PATTERN_DETECTION} | Aggressive: ${AGGRESSIVE_MODE}`);
+
+    console.log(`\nEMA Trends Summary:`);
+    for (const sym of MONITORED_SYMBOLS) {
+      if (emaCache[sym]) {
+        const trends = Object.entries(emaCache[sym]).map(([k, v]) => `EMA${k}=${v}`).join(', ');
+        console.log(`  ${sym.padEnd(15)}: ${trends}`);
+      }
+    }
+
+    const tradeSignals = await this.patternRecognizer.scanAndGenerateSignals(cycleStartTime);
+    await this.processSignals(tradeSignals);
+
+    // Send market scan data to web API
+    await this.sendMarketScanToApi(cycleStartTime, tradeSignals);
+
+    // Send open trades to dashboard
+    await this.sendOpenTradesToApi();
+
+    // Log pattern status
+    if (this.patternRecognizer['activePatterns'].size > 0) {
+      console.log(`\nActive Patterns (${this.patternRecognizer['activePatterns'].size}):`);
+      for (const [patternKey, pattern] of Array.from(this.patternRecognizer['activePatterns'])) {
+        const age = (cycleStartTime.getTime() - pattern.detectionTime.getTime()) / (1000 * 60);
+        console.log(`  ${patternKey}: ${pattern.patternType} (detected ${age.toFixed(1)} min ago)`);
+      }
+    } else {
+      console.log("\nNo active patterns at this moment.");
+    }
+
+    const cycleEndTime = new Date();
+    console.log(`Cycle took ${(cycleEndTime.getTime() - cycleStartTime.getTime()) / 1000}s.`);
   }
 
   private async sendSignalToApi(signal: TradeSignal, finalizedSignal: TradeSignal): Promise<void> {
@@ -670,7 +751,7 @@ export class TradingBot {
         console.log("-".repeat(120));
 
         console.log(`\n\\x1b[93m--- Market Scan Cycle at ${cycleStartTime.toISOString()} UTC ---\\x1b[0m`);
-        console.log(`[TRADING STATUS] Open Trades: ${this.activeTrades.length}/${MAX_CONCURRENT_TRADES}`);
+        console.log(`[TRADING STATUS] Open Trades: ${this.activeTrades.length}/${MAX_CONCURRENT_TRADES} | Auto Trade: ${AUTO_TRADE_ON_PATTERN_DETECTION} | Aggressive: ${AGGRESSIVE_MODE}`);
 
         console.log(`\nEMA Trends Summary:`);
         for (const sym of MONITORED_SYMBOLS) {

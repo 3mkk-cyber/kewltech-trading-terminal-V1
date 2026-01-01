@@ -18,7 +18,10 @@ import {
   MONITORED_SYMBOLS,
   EMA_PERIODS,
   WEDGE_MIN_PIVOTS_5M,
-  WEDGE_MIN_R_SQUARED_5M
+  WEDGE_MIN_R_SQUARED_5M,
+  AUTO_TRADE_ON_PATTERN_DETECTION,
+  AUTO_TRADE_ON_BREAKOUT,
+  MAX_CONCURRENT_TRADES
 } from './config';
 import { getPivotPoints, fitTrendline, getEMATrend, getCandleDurationMinutes } from './utils';
 
@@ -568,6 +571,30 @@ export class PatternRecognizer {
               const emaTrends = getEMATrend(klinesForDetection, EMA_PERIODS);
               console.info(`[KEWLTECH] Potential Pattern Detected: ${detectedPattern.patternType} for ${symbol} ${interval}`);
               console.info(`  EMA Trends: ${Object.entries(emaTrends).map(([k, v]) => `EMA${k}:${v}`).join(', ')}`);
+
+              // Auto trade on pattern detection
+              if (AUTO_TRADE_ON_PATTERN_DETECTION && this.tradingBot && this.tradingBot.activeTrades.length < MAX_CONCURRENT_TRADES) {
+                console.log(`[AUTO TRADE] Executing on pattern formation for ${symbol} ${interval}`);
+                // Create synthetic signal from pattern
+                const syntheticSignal: TradeSignal = {
+                  symbol,
+                  strategy: detectedPattern.patternType,
+                  tradeType: detectedPattern.patternType.includes('Bullish') ? 'long' : 'short',
+                  interval,
+                  entryPrice: klinesForDetection[klinesForDetection.length - 1].close, // Use current close as entry
+                  stopLossPrice: detectedPattern.patternType.includes('Bullish') 
+                    ? klinesForDetection[klinesForDetection.length - 1].close * 0.95 // 5% below for bullish
+                    : klinesForDetection[klinesForDetection.length - 1].close * 1.05, // 5% above for bearish
+                  takeProfitPrice: detectedPattern.patternType.includes('Bullish')
+                    ? klinesForDetection[klinesForDetection.length - 1].close * 1.03 // 3% above for bullish
+                    : klinesForDetection[klinesForDetection.length - 1].close * 0.97, // 3% below for bearish
+                  signalTime: new Date(),
+                  confidence: 0.7,
+                  patternDetails: detectedPattern
+                };
+                // Process the synthetic signal
+                await this.tradingBot.processSignals([syntheticSignal]);
+              }
             }
           }
         } else {
@@ -581,6 +608,13 @@ export class PatternRecognizer {
               if (this.tradingBot) {
                 this.tradingBot.sendPatternToApi(symbol, interval, this.activePatterns.get(patternKey)!.patternType, false);
               }
+
+              // Auto trade on breakout
+              if (AUTO_TRADE_ON_BREAKOUT && this.tradingBot && this.tradingBot.activeTrades.length < MAX_CONCURRENT_TRADES) {
+                console.log(`[AUTO TRADE] Executing on breakout for ${symbol} ${interval}`);
+                await this.tradingBot.processSignals([breakoutSignal]);
+              }
+
               generatedSignals.push(breakoutSignal);
               this.activePatterns.delete(patternKey);
               console.info(`Breakout signal generated and pattern ${patternKey} removed.`);

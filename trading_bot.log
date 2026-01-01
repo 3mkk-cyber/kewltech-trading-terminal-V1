@@ -27805,3 +27805,28 @@ Active Patterns (11):[0m
 [97m2026-01-01 03:04:41,863 - __main__ - INFO -   SPOT_BTC_USDT_15m: Bearish Wedge (Rising Wedge) (detected 4.3 min ago)[0m
 [97m2026-01-01 03:04:41,863 - __main__ - INFO -   SPOT_ETH_USDT_15m: Bearish Wedge (Rising Wedge) (detected -10.7 min ago)[0m
 [97m2026-01-01 03:04:41,863 - __main__ - INFO - Cycle took 23.20s. Sleeping for 36.80s.[0m
+[97m2026-01-01 18:34:59,051 - __main__ - INFO - RiskManager initialized. Equity: $10,000.00, Risk per Trade: 1.00%[0m
+[97m2026-01-01 18:34:59,051 - __main__ - INFO - TradingBot initialized.[0m
+[97m2026-01-01 18:34:59,051 - __main__ - INFO - Starting Kewltech-Inspired Trading Bot...[0m
+[97m2026-01-01 18:34:59,051 - __main__ - INFO - Symbols: ['SPOT_BTC_USDT', 'SPOT_ETH_USDT', 'SPOT_SOL_USDT', 'SPOT_ADA_USDT', 'SPOT_DOGE_USDT', 'SPOT_POL_USDT'], Scan Interval: 60s[0m
+[97m2026-01-01 18:34:59,051 - __main__ - INFO - Account Equity: $10,000.00, Risk per Trade: 1.00%[0m
+[97m2026-01-01 18:34:59,051 - __main__ - INFO - Press Ctrl+C to stop.[0m
+[97m2026-01-01 18:35:01,951 - __main__ - INFO - 
+[93m--- Market Scan Cycle at 2026-01-01 17:34:59 UTC ---[0m[0m
+[97m2026-01-01 18:35:01,952 - __main__ - INFO - [TRADING STATUS] Open Trades: 0/5 | Auto Trade: True | Aggressive: True[0m
+[97m2026-01-01 18:35:01,952 - __main__ - INFO - 
+EMA Trends Summary:[0m
+[97m2026-01-01 18:35:01,952 - __main__ - INFO -   SPOT_BTC_USDT  : EMA13=bullish      EMA34=bullish      EMA244=insufficient_data EMA610=insufficient_data[0m
+[97m2026-01-01 18:35:01,952 - __main__ - INFO -   SPOT_ETH_USDT  : EMA13=bullish      EMA34=bullish      EMA244=insufficient_data EMA610=insufficient_data[0m
+[97m2026-01-01 18:35:01,952 - __main__ - INFO -   SPOT_SOL_USDT  : EMA13=bullish      EMA34=bullish      EMA244=insufficient_data EMA610=insufficient_data[0m
+[97m2026-01-01 18:35:01,952 - __main__ - INFO -   SPOT_ADA_USDT  : EMA13=bullish      EMA34=bullish      EMA244=insufficient_data EMA610=insufficient_data[0m
+[97m2026-01-01 18:35:01,953 - __main__ - INFO -   SPOT_DOGE_USDT : EMA13=bullish      EMA34=bullish      EMA244=insufficient_data EMA610=insufficient_data[0m
+[97m2026-01-01 18:35:01,953 - __main__ - INFO -   SPOT_POL_USDT  : EMA13=bullish      EMA34=bullish      EMA244=insufficient_data EMA610=insufficient_data[0m
+[97m2026-01-01 18:35:02,211 - __main__ - INFO - SPOT_BTC_USDT 15m: Found 37 pivot points (Curr: 88371.5100)[0m
+[97m2026-01-01 18:35:02,212 - __main__ - INFO - SPOT_BTC_USDT 15m Trendlines: Upper(slope=6.608079,R²=0.7847) Lower(slope=-0.260433,R²=0.0016)[0m
+[97m2026-01-01 18:35:02,459 - __main__ - INFO - SPOT_BTC_USDT 1h: Found 37 pivot points (Curr: 88371.5100)[0m
+[97m2026-01-01 18:35:02,460 - __main__ - INFO - SPOT_BTC_USDT 1h Trendlines: Upper(slope=7.617286,R²=0.2827) Lower(slope=15.087286,R²=0.6884)[0m
+[97m2026-01-01 18:35:02,460 - __main__ - INFO - SPOT_BTC_USDT 1h: [BEARISH WEDGE FORMING] Both slopes positive (uptrend), convergence detected (H_slope=7.617286, L_slope=15.087286)[0m
+[97m2026-01-01 18:35:06,554 - __main__ - INFO - 
+[91mBot stopped by user.[0m[0m
+[97m2026-01-01 18:35:06,555 - __main__ - INFO - Trading Bot shutting down.[0m

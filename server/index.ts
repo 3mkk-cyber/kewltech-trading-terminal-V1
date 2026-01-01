@@ -9,6 +9,7 @@ import { db } from "./db";
 import { analysisLogs } from "@shared/schema";
 import { sql } from "drizzle-orm";
 import { TradingBot } from "./tradingBot";
+import { TradingBot } from "./tradingBot";
 
 const app = express();
 const httpServer = createServer(app);
@@ -122,6 +123,9 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+      // Start the trading bot
+      const tradingBot = new TradingBot();
+      tradingBot.start();
     },
   );
 })();
