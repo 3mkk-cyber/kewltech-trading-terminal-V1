@@ -524,5 +524,83 @@ export async function registerRoutes(
     }
   });
 
+  // Paper trading results endpoint
+  app.post("/api/bot/trades", (req, res) => {
+    try {
+      const trade = req.body;
+      botSignalsManager.addClosedTrade(trade);
+      res.json({ success: true, data: trade });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  app.get("/api/bot/trades", (req, res) => {
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      const symbol = req.query.symbol as string | undefined;
+      
+      let trades;
+      if (symbol) {
+        trades = botSignalsManager.getClosedTradesBySymbol(symbol);
+      } else {
+        trades = botSignalsManager.getClosedTrades(limit);
+      }
+      
+      const stats = botSignalsManager.getTradeStats();
+      res.json({ success: true, data: trades, stats });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  app.post("/api/bot/open-trades", (req, res) => {
+    try {
+      // Handle both direct array format and nested format from trading bot
+      let trades = req.body;
+      if (req.body.openTrades && Array.isArray(req.body.openTrades)) {
+        trades = req.body.openTrades;
+      }
+
+      // Transform trade data to match frontend expectations
+      const transformedTrades = trades.map((trade: any) => ({
+        id: trade.id,
+        symbol: trade.symbol,
+        entryPrice: trade.entryPrice,
+        currentPrice: trade.currentPrice,
+        positionSize: trade.positionSize,
+        entryTime: trade.entryTime,
+        unrealizedPnlUsd: trade.unrealizedPnl || trade.unrealizedPnlUsd || 0,
+        stopLossPrice: trade.stopLossPrice,
+        takeProfitPrice: trade.takeProfitPrice,
+        riskAmountUsd: trade.riskAmount || trade.riskAmountUsd || 0,
+        duration: trade.durationSeconds || trade.duration || 0,
+        isAggressive: trade.isAggressive || true, // Default to true for 5m trades
+      }));
+
+      botSignalsManager.setOpenTrades(transformedTrades);
+      res.json({ success: true, data: transformedTrades });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  app.get("/api/bot/open-trades", (req, res) => {
+    try {
+      const symbol = req.query.symbol as string | undefined;
+      
+      let trades;
+      if (symbol) {
+        trades = botSignalsManager.getOpenTradesBySymbol(symbol);
+      } else {
+        trades = botSignalsManager.getOpenTrades();
+      }
+      
+      res.json({ success: true, data: trades });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
   return httpServer;
 }

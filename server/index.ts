@@ -8,6 +8,7 @@ import { createServer } from "http";
 import { db } from "./db";
 import { analysisLogs } from "@shared/schema";
 import { sql } from "drizzle-orm";
+import { TradingBot } from "./tradingBot";
 
 const app = express();
 const httpServer = createServer(app);
@@ -84,6 +85,12 @@ app.use((req, res, next) => {
   }
 
   await registerRoutes(httpServer, app);
+
+  // Start the trading bot
+  const tradingBot = new TradingBot();
+  tradingBot.run().catch(error => {
+    console.error("Trading bot error:", error);
+  });
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

@@ -43,11 +43,45 @@ export interface BotMarketScan {
   signals: BotSignal[];
 }
 
+export interface OpenTrade {
+  id: string;
+  symbol: string;
+  entryPrice: number;
+  currentPrice: number;
+  positionSize: number;
+  entryTime: number;
+  unrealizedPnlUsd: number;
+  stopLossPrice: number;
+  takeProfitPrice: number;
+  riskAmountUsd: number;
+  duration: number; // seconds
+  isAggressive: boolean; // 5m trade?
+}
+
+export interface ClosedTrade {
+  id: string;
+  symbol: string;
+  entryPrice: number;
+  exitPrice: number;
+  positionSize: number;
+  entryTime: number;
+  exitTime: number;
+  exitReason: "TAKE_PROFIT" | "STOP_LOSS" | "MANUAL";
+  grossPnlUsd: number;
+  feesUsd: number;
+  netPnlUsd: number;
+  riskAmount: number;
+  isWinner: boolean;
+}
+
 class BotSignalsManager {
   private activeSignals: Map<string, BotSignal> = new Map();
   private activePatterns: Map<string, BotPattern> = new Map();
   private marketScans: BotMarketScan[] = [];
+  private closedTrades: ClosedTrade[] = [];
+  private openTrades: OpenTrade[] = [];
   private maxScans: number = 100; // Keep last 100 scans
+  private maxTrades: number = 1000; // Keep last 1000 trades
 
   addSignal(signal: BotSignal): void {
     this.activeSignals.set(signal.id, signal);
@@ -92,6 +126,14 @@ class BotSignalsManager {
     if (this.marketScans.length > this.maxScans) {
       this.marketScans.shift();
     }
+    // Add signals from the scan to active signals
+    for (const signal of scan.signals) {
+      this.addSignal(signal);
+    }
+    // Add patterns from the scan to active patterns
+    for (const pattern of scan.patterns) {
+      this.addPattern(pattern);
+    }
     console.log(
       `[BOT] Market scan recorded: ${scan.symbols.length} symbols, ${scan.patterns.length} patterns, ${scan.signals.length} signals`
     );
@@ -105,6 +147,66 @@ class BotSignalsManager {
 
   getScans(limit: number = 20): BotMarketScan[] {
     return this.marketScans.slice(-limit);
+  }
+
+  addClosedTrade(trade: ClosedTrade): void {
+    this.closedTrades.push(trade);
+    if (this.closedTrades.length > this.maxTrades) {
+      this.closedTrades.shift();
+    }
+    console.log(
+      `[BOT] Trade closed: ${trade.symbol} ${trade.exitReason} P&L: $${trade.netPnlUsd.toFixed(2)}`
+    );
+  }
+
+  setOpenTrades(trades: OpenTrade[]): void {
+    this.openTrades = trades;
+  }
+
+  getOpenTrades(): OpenTrade[] {
+    return this.openTrades;
+  }
+
+  getOpenTradesBySymbol(symbol: string): OpenTrade[] {
+    return this.openTrades.filter((t) => t.symbol === symbol);
+  }
+
+  getClosedTrades(limit?: number): ClosedTrade[] {
+    const trades = this.closedTrades;
+    if (limit) {
+      return trades.slice(-limit);
+    }
+    return trades;
+  }
+
+  getClosedTradesBySymbol(symbol: string): ClosedTrade[] {
+    return this.closedTrades.filter((t) => t.symbol === symbol);
+  }
+
+  getTradeStats() {
+    if (this.closedTrades.length === 0) {
+      return {
+        totalTrades: 0,
+        winners: 0,
+        losers: 0,
+        winRate: 0,
+        totalNetPnl: 0,
+        averagePnl: 0,
+      };
+    }
+
+    const winners = this.closedTrades.filter((t) => t.isWinner).length;
+    const losers = this.closedTrades.length - winners;
+    const totalNetPnl = this.closedTrades.reduce((sum, t) => sum + t.netPnlUsd, 0);
+
+    return {
+      totalTrades: this.closedTrades.length,
+      winners,
+      losers,
+      winRate: (winners / this.closedTrades.length) * 100,
+      totalNetPnl,
+      averagePnl: totalNetPnl / this.closedTrades.length,
+    };
   }
 
   clear(): void {

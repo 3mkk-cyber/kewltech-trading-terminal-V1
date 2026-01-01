@@ -17,11 +17,11 @@ interface BotSignal {
   symbol: string;
   strategy: string;
   tradeType: "long" | "short";
-  entryPrice: number;
-  stopLossPrice: number;
-  takeProfitPrice: number;
-  positionSize: number;
-  riskAmount: number;
+  entryPrice?: number;
+  stopLossPrice?: number;
+  takeProfitPrice?: number;
+  positionSize?: number;
+  riskAmount?: number;
   signalTime: number;
   confidence?: number;
   details?: any;
@@ -76,19 +76,22 @@ export function BotSignalsPanel() {
 function SignalCard({ signal }: { signal: BotSignal }) {
   const isLong = signal.tradeType === "long";
   const riskReward =
-    isLong
+    isLong && signal.entryPrice && signal.stopLossPrice && signal.takeProfitPrice
       ? ((signal.takeProfitPrice - signal.entryPrice) /
           (signal.entryPrice - signal.stopLossPrice)) ||
         0
-      : ((signal.entryPrice - signal.takeProfitPrice) /
+      : signal.entryPrice && signal.stopLossPrice && signal.takeProfitPrice
+      ? ((signal.entryPrice - signal.takeProfitPrice) /
           (signal.stopLossPrice - signal.entryPrice)) ||
-        0;
+        0
+      : 0;
 
   const signalDate = new Date(signal.signalTime);
   const timeAgo = Math.floor(
     (Date.now() - signalDate.getTime()) / 1000
   );
   const timeStr =
+    isNaN(signalDate.getTime()) ? 'Unknown' :
     timeAgo < 60 ? `${timeAgo}s ago` : `${Math.floor(timeAgo / 60)}m ago`;
 
   return (
@@ -128,7 +131,7 @@ function SignalCard({ signal }: { signal: BotSignal }) {
           <div>
             <p className="text-xs text-muted-foreground">Entry</p>
             <p className="font-mono font-semibold text-sm">
-              ${signal.entryPrice.toFixed(2)}
+              ${signal.entryPrice?.toFixed(2) || 'N/A'}
             </p>
           </div>
           <div>
@@ -150,7 +153,7 @@ function SignalCard({ signal }: { signal: BotSignal }) {
             <Shield className="w-3 h-3" /> SL
           </p>
           <p className="font-mono font-semibold text-red-500">
-            ${signal.stopLossPrice.toFixed(2)}
+            ${signal.stopLossPrice?.toFixed(2) || 'N/A'}
           </p>
         </div>
         <div>
@@ -158,7 +161,7 @@ function SignalCard({ signal }: { signal: BotSignal }) {
             <Target className="w-3 h-3" /> TP
           </p>
           <p className="font-mono font-semibold text-green-500">
-            ${signal.takeProfitPrice.toFixed(2)}
+            ${signal.takeProfitPrice?.toFixed(2) || 'N/A'}
           </p>
         </div>
         <div>
@@ -166,7 +169,7 @@ function SignalCard({ signal }: { signal: BotSignal }) {
             <AlertCircle className="w-3 h-3" /> Risk
           </p>
           <p className="font-mono font-semibold text-yellow-500">
-            ${signal.riskAmount.toFixed(2)}
+            ${signal.riskAmount?.toFixed(2) || 'N/A'}
           </p>
         </div>
       </div>
