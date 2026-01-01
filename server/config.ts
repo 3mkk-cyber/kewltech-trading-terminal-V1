@@ -40,13 +40,17 @@ export const AUTO_TRADE_ON_BREAKOUT = true; // Automatically execute on pattern 
 export const AGGRESSIVE_MODE = true; // Trade more patterns with relaxed thresholds
 export const MAX_CONCURRENT_TRADES = 5; // Maximum number of simultaneous open positions
 
-// --- 5-Minute Aggressive Trading Configuration (BTC & ETH Only) ---
+// --- 5-Minute Conservative Trading Configuration (BTC & ETH Only) ---
 export const AGGRESSIVE_5M_SYMBOLS = ['SPOT_BTC_USDT', 'SPOT_ETH_USDT']; // Trade 5-minute candles for these symbols
 export const SCAN_5M_ENABLED = true; // Enable 5-minute candle scanning
-export const SCAN_5M_INTERVAL_SECONDS = 15; // Check 5-minute patterns every 15 seconds
-export const WEDGE_MIN_PIVOTS_5M = 2; // Very relaxed pivot requirement for 5m (more aggressive)
-export const WEDGE_MIN_R_SQUARED_5M = 0.15; // Lower R-squared threshold for 5m patterns
-export const POSITION_SIZE_REDUCTION_5M = 0.5; // Use 50% of normal position size for 5m trades (to manage risk)
+export const SCAN_5M_INTERVAL_SECONDS = 30; // Check 5-minute patterns every 30 seconds (less frequent)
+export const WEDGE_MIN_PIVOTS_5M = 4; // Require more pivots for better pattern quality
+export const WEDGE_MIN_R_SQUARED_5M = 0.25; // Higher R-squared threshold for better trendlines
+export const POSITION_SIZE_REDUCTION_5M = 0.3; // Use only 30% of normal position size for 5m trades (more conservative)
+export const MIN_SIGNAL_CONFIDENCE_5M = 0.7; // Minimum confidence score for 5m signals
+export const MAX_DAILY_5M_TRADES = 3; // Limit 5m trades per symbol per day
+export const MIN_PATTERN_AGE_5M = 3; // Minimum pattern age in candles before breakout
+export const MAX_SLIPPAGE_5M = 0.001; // Maximum allowed slippage (0.1%)
 
 // --- Logging ---
 export const LOG_LEVEL = "INFO"; // DEBUG, INFO, WARNING, ERROR

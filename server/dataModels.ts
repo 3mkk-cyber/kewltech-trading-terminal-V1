@@ -40,6 +40,8 @@ export interface Pattern {
   orbHigh?: number;
   orbLow?: number;
   orbEndTime?: Date;
+  rSquaredUpper?: number;
+  rSquaredLower?: number;
 }
 
 export interface TradeSignal {

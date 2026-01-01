@@ -8,7 +8,7 @@ import axios from 'axios';
 import { WoofiProAPIClient } from './woofiApiClient';
 import { PatternRecognizer } from './patternRecognizer';
 import { RiskManager } from './riskManager';
-import { TradeSignal, ActiveTrade, Kline } from './dataModels';
+import { Pattern, TradeSignal, ActiveTrade, Kline } from './dataModels';
 import {
   ACCOUNT_EQUITY_USD,
   RISK_PERCENTAGE_PER_TRADE,
@@ -18,7 +18,13 @@ import {
   AGGRESSIVE_5M_SYMBOLS,
   SCAN_5M_ENABLED,
   SCAN_5M_INTERVAL_SECONDS,
+  WEDGE_MIN_PIVOTS_5M,
+  WEDGE_MIN_R_SQUARED_5M,
   POSITION_SIZE_REDUCTION_5M,
+  MIN_SIGNAL_CONFIDENCE_5M,
+  MAX_DAILY_5M_TRADES,
+  MIN_PATTERN_AGE_5M,
+  MAX_SLIPPAGE_5M,
   EMA_PERIODS
 } from './config';
 import { getEMATrend } from './utils';
@@ -140,9 +146,17 @@ export class TradingBot {
         return;
       }
 
-      const openTrades = this.activeTrades.map(trade => {
+      console.log(`[DEBUG] sendOpenTradesToApi called with ${this.activeTrades.length} active trades`);
+
+      const openTrades = await Promise.all(this.activeTrades.map(async (trade) => {
         try {
-          const currentPrice = trade.signal.entryPrice; // Fallback to entry price
+          console.log(`[DEBUG] Fetching current price for ${trade.signal.symbol}`);
+          // Fetch current price from API
+          const currentPriceData = await this.apiClient.getCurrentPrice(trade.signal.symbol);
+          console.log(`[DEBUG] Current price data for ${trade.signal.symbol}:`, currentPriceData);
+          const currentPrice = currentPriceData ? parseFloat(currentPriceData.c) : trade.signal.entryPrice;
+          console.log(`[DEBUG] Using currentPrice ${currentPrice} for ${trade.signal.symbol} (entry: ${trade.signal.entryPrice})`);
+
           const unrealizedPnl = (currentPrice - trade.signal.entryPrice) * (trade.signal.positionSize || 0);
           const fees = Math.abs(unrealizedPnl) * 0.0005;
 
@@ -158,18 +172,20 @@ export class TradingBot {
             unrealizedPnlUsd: parseFloat(unrealizedPnl.toFixed(2)),
             riskAmountUsd: trade.signal.riskAmountUsd || 0,
             duration: Math.floor((Date.now() - trade.entryTime.getTime()) / 1000),
-            isAggressive: true
+            isAggressive: trade.signal.interval === "5m" ? false : true
           };
         } catch (e) {
           console.debug(`Error preparing open trade data for ${trade.signal.symbol}:`, e);
           return null;
         }
-      }).filter(trade => trade !== null);
+      }));
 
-      if (openTrades.length > 0) {
-        const response = await axios.post(`${this.webApiUrl}/api/bot/open-trades`, openTrades, { timeout: 5000 });
+      const validTrades = openTrades.filter(trade => trade !== null);
+
+      if (validTrades.length > 0) {
+        const response = await axios.post(`${this.webApiUrl}/api/bot/open-trades`, validTrades, { timeout: 5000 });
         if (response.status === 200) {
-          console.debug(`Open trades sent to API: ${openTrades.length} trades`);
+          console.debug(`Open trades sent to API: ${validTrades.length} trades`);
         } else {
           console.debug(`Failed to send open trades: ${response.status}`);
         }
@@ -183,6 +199,174 @@ export class TradingBot {
     const jitterSeconds = (Math.random() - 0.5) * 4; // -2 to +2 seconds
     const interval = Math.max(1.0, SCAN_5M_INTERVAL_SECONDS + jitterSeconds);
     return new Date(fromTime.getTime() + interval * 1000);
+  }
+
+  private async scan5mPatterns(): Promise<TradeSignal[]> {
+    const signals: TradeSignal[] = [];
+
+    for (const symbol of AGGRESSIVE_5M_SYMBOLS) {
+      try {
+        // Check daily trade limit
+        const todayTrades = this.getToday5mTrades(symbol);
+        if (todayTrades >= MAX_DAILY_5M_TRADES) {
+          console.log(`[5M] Skipping ${symbol} - daily limit reached (${todayTrades}/${MAX_DAILY_5M_TRADES})`);
+          continue;
+        }
+
+        // Get 5-minute klines for pattern detection
+        const klines5m = await this.apiClient.getKlines(symbol, "5m", 100);
+        if (!klines5m || klines5m.length < 20) {
+          console.debug(`[5M] Insufficient 5m data for ${symbol}`);
+          continue;
+        }
+
+        // Detect 5-minute patterns with improved logic
+        const pattern = this.patternRecognizer['detect5mPattern'](symbol, klines5m);
+        if (!pattern) {
+          continue;
+        }
+
+        // Check pattern quality and age
+        const patternAge = (Date.now() - pattern.detectionTime.getTime()) / (1000 * 60 * 5); // Age in 5m candles
+        if (patternAge < MIN_PATTERN_AGE_5M) {
+          console.debug(`[5M] Pattern too new for ${symbol} (${patternAge.toFixed(1)} candles old)`);
+          continue;
+        }
+
+        // Calculate signal confidence
+        const confidence = this.calculate5mSignalConfidence(pattern, klines5m);
+        if (confidence < MIN_SIGNAL_CONFIDENCE_5M) {
+          console.debug(`[5M] Low confidence signal for ${symbol} (${confidence.toFixed(2)})`);
+          continue;
+        }
+
+        // Check for breakout with improved logic
+        const breakoutSignal = this.patternRecognizer['check5mBreakout'](symbol, pattern, klines5m);
+        if (breakoutSignal) {
+          // Apply conservative risk management
+          const riskManagedSignal = this.apply5mRiskManagement(breakoutSignal, klines5m, confidence);
+          if (riskManagedSignal) {
+            signals.push(riskManagedSignal);
+            console.log(`[5M] Conservative signal generated for ${symbol} (${pattern.patternType}) confidence: ${confidence.toFixed(2)}`);
+          }
+        }
+      } catch (error) {
+        console.error(`[5M] Error scanning ${symbol}:`, error);
+      }
+    }
+
+    return signals;
+  }
+
+  private getToday5mTrades(symbol: string): number {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return this.closedTrades.filter(trade =>
+      trade.signal.symbol === symbol &&
+      trade.signal.interval === "5m" &&
+      trade.entryTime >= today
+    ).length;
+  }
+
+  private calculate5mSignalConfidence(pattern: Pattern, klines: Kline[]): number {
+    let confidence = 0.5; // Base confidence
+
+    // Pattern quality factors
+    const r2Avg = (pattern.upperTrendlineSlope && pattern.lowerTrendlineSlope) ?
+      (Math.abs(pattern.upperTrendlineSlope) + Math.abs(pattern.lowerTrendlineSlope)) / 2 : 0;
+    confidence += r2Avg * 0.2; // Better trendlines = higher confidence
+
+    // Volume confirmation (if available)
+    const recentCandles = klines.slice(-5);
+    const avgVolume = recentCandles.reduce((sum, k) => sum + (k.volume || 0), 0) / recentCandles.length;
+    if (avgVolume > 0) {
+      confidence += 0.1; // Volume data available
+    }
+
+    // Pattern age factor (older patterns more reliable)
+    const ageHours = (Date.now() - pattern.detectionTime.getTime()) / (1000 * 60 * 60);
+    confidence += Math.min(ageHours / 24, 0.2); // Up to 0.2 bonus for patterns > 24h old
+
+    // Market condition factor
+    const currentPrice = klines[klines.length - 1].close;
+    const sma20 = this.calculateSMA(klines.slice(-20), 20);
+    if (sma20) {
+      const distanceFromSMA = Math.abs(currentPrice - sma20) / sma20;
+      if (distanceFromSMA < 0.02) { // Within 2% of SMA
+        confidence += 0.1; // Better market condition
+      }
+    }
+
+    return Math.min(confidence, 1.0); // Cap at 1.0
+  }
+
+  private calculateSMA(klines: Kline[], period: number): number | null {
+    if (klines.length < period) return null;
+    const sum = klines.slice(-period).reduce((acc, k) => acc + k.close, 0);
+    return sum / period;
+  }
+
+  private apply5mRiskManagement(signal: TradeSignal, klines: Kline[], confidence: number): TradeSignal | null {
+    const currentPrice = klines[klines.length - 1].close;
+
+    // Conservative position sizing based on confidence
+    const basePositionSize = signal.positionSize || 0;
+    const confidenceMultiplier = 0.5 + (confidence * 0.5); // 0.5 to 1.0 based on confidence
+    const conservativePositionSize = basePositionSize * POSITION_SIZE_REDUCTION_5M * confidenceMultiplier;
+
+    // Improved stop loss calculation using ATR
+    const atr = this.calculateATR(klines.slice(-14), 14);
+    const atrMultiplier = signal.tradeType === "long" ? 1.5 : 1.5; // Tighter stops for 5m
+    const stopDistance = atr ? atr * atrMultiplier : Math.abs(signal.entryPrice) * 0.005; // 0.5% fallback
+
+    let stopLossPrice: number;
+    let takeProfitPrice: number;
+
+    if (signal.tradeType === "long") {
+      stopLossPrice = Math.max(signal.stopLossPrice, signal.entryPrice - stopDistance);
+      takeProfitPrice = Math.min(signal.takeProfitPrice, signal.entryPrice + (stopDistance * 2)); // 2:1 reward ratio
+    } else {
+      stopLossPrice = Math.min(signal.stopLossPrice, signal.entryPrice + stopDistance);
+      takeProfitPrice = Math.max(signal.takeProfitPrice, signal.entryPrice - (stopDistance * 2));
+    }
+
+    // Validate stop loss distance
+    const riskPerUnit = Math.abs(signal.entryPrice - stopLossPrice);
+    if (riskPerUnit / signal.entryPrice < 0.002) { // Minimum 0.2% risk
+      console.debug(`[5M] Stop loss too tight for ${signal.symbol}, skipping`);
+      return null;
+    }
+
+    // Apply slippage protection
+    const maxSlippage = signal.entryPrice * MAX_SLIPPAGE_5M;
+    if (Math.abs(currentPrice - signal.entryPrice) > maxSlippage) {
+      console.debug(`[5M] Excessive slippage for ${signal.symbol}, skipping`);
+      return null;
+    }
+
+    return {
+      ...signal,
+      positionSize: conservativePositionSize,
+      stopLossPrice,
+      takeProfitPrice,
+      riskAmountUsd: (conservativePositionSize * riskPerUnit)
+    };
+  }
+
+  private calculateATR(klines: Kline[], period: number): number | null {
+    if (klines.length < period + 1) return null;
+
+    const trueRanges: number[] = [];
+    for (let i = 1; i < Math.min(klines.length, period + 1); i++) {
+      const high = klines[i].high;
+      const low = klines[i].low;
+      const prevClose = klines[i - 1].close;
+      const tr = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
+      trueRanges.push(tr);
+    }
+
+    return trueRanges.reduce((sum, tr) => sum + tr, 0) / trueRanges.length;
   }
 
   private async sendMarketScanToApi(currentTimeUtc: Date, signals: TradeSignal[]): Promise<void> {
@@ -502,7 +686,8 @@ export class TradingBot {
         let signals5m: TradeSignal[] = [];
         const nowFor5m = new Date();
         if (SCAN_5M_ENABLED && nowFor5m >= next5mScanTime) {
-          // 5m scanning would be implemented here
+          // Conservative 5-minute pattern scanning
+          signals5m = await this.scan5mPatterns();
           next5mScanTime = this.next5mScanDue(nowFor5m);
         }
 

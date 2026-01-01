@@ -348,81 +348,79 @@ export class PatternRecognizer {
   }
 
   private detect5mPattern(symbol: string, klines: Kline[]): Pattern | null {
-    if (klines.length < WEDGE_MIN_PIVOTS_5M + 2) {
+    if (klines.length < WEDGE_MIN_PIVOTS_5M + 5) { // Need more candles for better analysis
       return null;
     }
 
-    // Identify pivot points (simplified for speed)
-    const pivotIndices: number[] = [];
-    for (let i = 1; i < klines.length - 1; i++) {
-      const isHighPivot = klines[i].high > klines[i - 1].high && klines[i].high > klines[i + 1].high;
-      const isLowPivot = klines[i].low < klines[i - 1].low && klines[i].low < klines[i + 1].low;
-      if (isHighPivot || isLowPivot) {
-        pivotIndices.push(i);
-      }
-    }
-
-    if (pivotIndices.length < WEDGE_MIN_PIVOTS_5M) {
+    // Use more sophisticated pivot detection
+    const pivots = getPivotPoints(klines, 3); // Higher window for more reliable pivots
+    if (pivots.length < WEDGE_MIN_PIVOTS_5M) {
       return null;
     }
 
-    // Extract pivot prices
-    const pivotHighs = pivotIndices.map(i => klines[i].high);
-    const pivotLows = pivotIndices.map(i => klines[i].low);
+    const highs = pivots.filter(p => p.type === 'high');
+    const lows = pivots.filter(p => p.type === 'low');
 
-    // Fit trendlines with aggressive parameters
-    const x = Array.from({ length: pivotHighs.length }, (_, i) => i);
+    if (highs.length < 2 || lows.length < 2) return null;
 
-    // Upper trendline
-    const zHigh = this.simpleLinearRegression(x, pivotHighs);
-    const pHigh = (xVal: number) => zHigh.slope * xVal + zHigh.intercept;
-    const residualsHigh = pivotHighs.map((y, i) => y - pHigh(i));
-    const ssResHigh = residualsHigh.reduce((sum, r) => sum + r * r, 0);
-    const ssTotHigh = pivotHighs.reduce((sum, y) => sum + Math.pow(y - (pivotHighs.reduce((a, b) => a + b, 0) / pivotHighs.length), 2), 0);
-    const r2High = ssTotHigh > 0 ? 1 - (ssResHigh / ssTotHigh) : 0;
+    // Use the more sophisticated trendline fitting
+    const recentHighsChrono = highs.slice(-WEDGE_MIN_PIVOTS_5M).sort((a, b) => a.index - b.index);
+    const recentLowsChrono = lows.slice(-WEDGE_MIN_PIVOTS_5M).sort((a, b) => a.index - b.index);
 
-    // Lower trendline
-    const zLow = this.simpleLinearRegression(x, pivotLows);
-    const pLow = (xVal: number) => zLow.slope * xVal + zLow.intercept;
-    const residualsLow = pivotLows.map((y, i) => y - pLow(i));
-    const ssResLow = residualsLow.reduce((sum, r) => sum + r * r, 0);
-    const ssTotLow = pivotLows.reduce((sum, y) => sum + Math.pow(y - (pivotLows.reduce((a, b) => a + b, 0) / pivotLows.length), 2), 0);
-    const r2Low = ssTotLow > 0 ? 1 - (ssResLow / ssTotLow) : 0;
+    if (recentHighsChrono.length < 2 || recentLowsChrono.length < 2) return null;
 
-    // Check for wedge convergence (aggressive for 5m)
-    if (r2High >= WEDGE_MIN_R_SQUARED_5M && r2Low >= WEDGE_MIN_R_SQUARED_5M) {
-      const slopeDiff = Math.abs(zHigh.slope - zLow.slope);
-      if (slopeDiff > 0) {  // Slopes differ (convergence)
-        // Determine wedge type
-        const upperSlope = zHigh.slope;
-        const lowerSlope = zLow.slope;
+    const [slopeH, interceptH, rSqH] = fitTrendline(recentHighsChrono);
+    const [slopeL, interceptL, rSqL] = fitTrendline(recentLowsChrono);
 
-        if (upperSlope < 0 && lowerSlope < 0 && lowerSlope > upperSlope) {
-          // Falling wedge (bullish)
-          return {
-            symbol,
-            patternType: "Bullish Wedge (Falling Wedge)",
-            interval: "5m",
-            detectionTime: new Date(),
-            upperTrendlineSlope: upperSlope,
-            lowerTrendlineSlope: lowerSlope,
-            upperPivots: [], // Simplified
-            lowerPivots: []
-          };
-        } else if (upperSlope > 0 && lowerSlope > 0 && upperSlope > lowerSlope) {
-          // Rising wedge (bearish)
-          return {
-            symbol,
-            patternType: "Bearish Wedge (Rising Wedge)",
-            interval: "5m",
-            detectionTime: new Date(),
-            upperTrendlineSlope: upperSlope,
-            lowerTrendlineSlope: lowerSlope,
-            upperPivots: [], // Simplified
-            lowerPivots: []
-          };
-        }
-      }
+    if (slopeH == null || interceptH == null || rSqH == null ||
+        slopeL == null || interceptL == null || rSqL == null) return null;
+
+    // Conservative wedge detection with higher quality requirements
+    const slopeDiff = Math.abs(slopeH - slopeL);
+    const convergenceRatio = slopeDiff / Math.max(Math.abs(slopeH), Math.abs(slopeL), 0.0001);
+
+    // Bullish wedge (falling wedge) - more conservative criteria
+    const bullishSlopeCrit = slopeH < -0.00001 && slopeL < -0.00001 && slopeL > slopeH; // Both negative, lower steeper
+    const bullishConvCrit = convergenceRatio > 0.1; // Require meaningful convergence
+    const bullishRsqCrit = rSqH > WEDGE_MIN_R_SQUARED_5M && rSqL > WEDGE_MIN_R_SQUARED_5M;
+
+    if (bullishSlopeCrit && bullishConvCrit && bullishRsqCrit) {
+      console.debug(`[5M] Bullish wedge detected for ${symbol}: H_slope=${slopeH.toFixed(6)}, L_slope=${slopeL.toFixed(6)}, R²_H=${rSqH.toFixed(3)}, R²_L=${rSqL.toFixed(3)}`);
+
+      return {
+        symbol,
+        patternType: "Bullish Wedge (Falling Wedge)",
+        interval: "5m",
+        detectionTime: new Date(),
+        upperTrendlineSlope: slopeH,
+        lowerTrendlineSlope: slopeL,
+        upperPivots: recentHighsChrono,
+        lowerPivots: recentLowsChrono,
+        rSquaredUpper: rSqH,
+        rSquaredLower: rSqL
+      };
+    }
+
+    // Bearish wedge (rising wedge) - more conservative criteria
+    const bearishSlopeCrit = slopeH > 0.00001 && slopeL > 0.00001 && slopeH > slopeL; // Both positive, upper steeper
+    const bearishConvCrit = convergenceRatio > 0.1;
+    const bearishRsqCrit = rSqH > WEDGE_MIN_R_SQUARED_5M && rSqL > WEDGE_MIN_R_SQUARED_5M;
+
+    if (bearishSlopeCrit && bearishConvCrit && bearishRsqCrit) {
+      console.debug(`[5M] Bearish wedge detected for ${symbol}: H_slope=${slopeH.toFixed(6)}, L_slope=${slopeL.toFixed(6)}, R²_H=${rSqH.toFixed(3)}, R²_L=${rSqL.toFixed(3)}`);
+
+      return {
+        symbol,
+        patternType: "Bearish Wedge (Rising Wedge)",
+        interval: "5m",
+        detectionTime: new Date(),
+        upperTrendlineSlope: slopeH,
+        lowerTrendlineSlope: slopeL,
+        upperPivots: recentHighsChrono,
+        lowerPivots: recentLowsChrono,
+        rSquaredUpper: rSqH,
+        rSquaredLower: rSqL
+      };
     }
 
     return null;
@@ -442,26 +440,45 @@ export class PatternRecognizer {
   }
 
   private check5mBreakout(symbol: string, pattern: Pattern, klines: Kline[]): TradeSignal | null {
-    if (!klines || klines.length < 2) {
+    if (!klines || klines.length < 5) {
       return null;
     }
 
     const lastCandle = klines[klines.length - 1];
     const prevCandle = klines[klines.length - 2];
-    const currentPrice = lastCandle.close;
+    const twoCandlesAgo = klines[klines.length - 3];
 
-    // Bullish wedge breakout
+    // Conservative breakout confirmation - require volume and price confirmation
+    const avgVolume = klines.slice(-10).reduce((sum, k) => sum + (k.volume || 0), 0) / 10;
+    const currentVolume = lastCandle.volume || 0;
+
+    // Volume should be above average for valid breakout
+    if (currentVolume < avgVolume * 0.8) {
+      return null;
+    }
+
+    // Bullish wedge breakout with conservative criteria
     if (pattern.patternType.includes("Bullish")) {
-      if (currentPrice > prevCandle.high) {  // Price breaks above previous high
-        const entryPrice = currentPrice;
-        const riskPerUnit = pattern.lowerTrendlineSlope ? Math.abs(pattern.lowerTrendlineSlope) * 0.05 : 0.01;
-        const stopLossPrice = entryPrice - riskPerUnit * 2;
-        const takeProfitPrice = entryPrice + riskPerUnit * 2;
-        console.info(`[5M BREAKOUT] ${symbol} bullish: prev_high=${prevCandle.high.toFixed(4)} close=${currentPrice.toFixed(4)} sl=${stopLossPrice.toFixed(4)} tp=${takeProfitPrice.toFixed(4)}`);
+      // Require break above recent resistance and confirmation
+      const recentHigh = Math.max(...klines.slice(-5).map(k => k.high));
+      const breakoutLevel = recentHigh * 1.001; // 0.1% above recent high
+
+      if (lastCandle.close > breakoutLevel &&
+          lastCandle.close > prevCandle.high &&
+          prevCandle.close > twoCandlesAgo.close) { // Uptrend confirmation
+
+        const entryPrice = lastCandle.close;
+        // Use ATR for dynamic stop loss
+        const atr = this.calculateATR(klines.slice(-10), 10);
+        const stopDistance = atr ? atr * 1.5 : entryPrice * 0.005; // ATR-based or 0.5% minimum
+        const stopLossPrice = entryPrice - stopDistance;
+        const takeProfitPrice = entryPrice + (stopDistance * 2.5); // 2.5:1 reward ratio for 5m
+
+        console.info(`[5M CONSERVATIVE] ${symbol} bullish breakout: entry=${entryPrice.toFixed(4)}, sl=${stopLossPrice.toFixed(4)}, tp=${takeProfitPrice.toFixed(4)}, volume=${(currentVolume/avgVolume).toFixed(1)}x avg`);
 
         const signal: TradeSignal = {
           symbol,
-          strategy: "5m_Aggressive",
+          strategy: "5m_conservative",
           tradeType: "long",
           interval: "5m",
           entryPrice,
@@ -474,18 +491,27 @@ export class PatternRecognizer {
       }
     }
 
-    // Bearish wedge breakout
+    // Bearish wedge breakout with conservative criteria
     else if (pattern.patternType.includes("Bearish")) {
-      if (currentPrice < prevCandle.low) {  // Price breaks below previous low
-        const entryPrice = currentPrice;
-        const riskPerUnit = pattern.upperTrendlineSlope ? pattern.upperTrendlineSlope * 0.05 : 0.01;
-        const stopLossPrice = entryPrice + riskPerUnit * 2;
-        const takeProfitPrice = entryPrice - riskPerUnit * 2;
-        console.info(`[5M BREAKOUT] ${symbol} bearish: prev_low=${prevCandle.low.toFixed(4)} close=${currentPrice.toFixed(4)} sl=${stopLossPrice.toFixed(4)} tp=${takeProfitPrice.toFixed(4)}`);
+      // Require break below recent support and confirmation
+      const recentLow = Math.min(...klines.slice(-5).map(k => k.low));
+      const breakoutLevel = recentLow * 0.999; // 0.1% below recent low
+
+      if (lastCandle.close < breakoutLevel &&
+          lastCandle.close < prevCandle.low &&
+          prevCandle.close < twoCandlesAgo.close) { // Downtrend confirmation
+
+        const entryPrice = lastCandle.close;
+        const atr = this.calculateATR(klines.slice(-10), 10);
+        const stopDistance = atr ? atr * 1.5 : entryPrice * 0.005;
+        const stopLossPrice = entryPrice + stopDistance;
+        const takeProfitPrice = entryPrice - (stopDistance * 2.5);
+
+        console.info(`[5M CONSERVATIVE] ${symbol} bearish breakout: entry=${entryPrice.toFixed(4)}, sl=${stopLossPrice.toFixed(4)}, tp=${takeProfitPrice.toFixed(4)}, volume=${(currentVolume/avgVolume).toFixed(1)}x avg`);
 
         const signal: TradeSignal = {
           symbol,
-          strategy: "5m_Aggressive",
+          strategy: "5m_conservative",
           tradeType: "short",
           interval: "5m",
           entryPrice,
@@ -498,10 +524,22 @@ export class PatternRecognizer {
       }
     }
 
-    console.debug(
-      `[5M BREAKOUT] ${symbol} no trigger: prev_high=${prevCandle.high.toFixed(4)} prev_low=${prevCandle.low.toFixed(4)} close=${currentPrice.toFixed(4)}`
-    );
     return null;
+  }
+
+  private calculateATR(klines: Kline[], period: number): number | null {
+    if (klines.length < period + 1) return null;
+
+    const trueRanges: number[] = [];
+    for (let i = 1; i < Math.min(klines.length, period + 1); i++) {
+      const high = klines[i].high;
+      const low = klines[i].low;
+      const prevClose = klines[i - 1].close;
+      const tr = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
+      trueRanges.push(tr);
+    }
+
+    return trueRanges.reduce((sum, tr) => sum + tr, 0) / trueRanges.length;
   }
 
   async scanAndGenerateSignals(currentTimeUtc: Date): Promise<TradeSignal[]> {
