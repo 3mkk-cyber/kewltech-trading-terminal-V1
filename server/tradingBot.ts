@@ -239,16 +239,11 @@ export class TradingBot {
         return;
       }
 
-      console.log(`[DEBUG] sendOpenTradesToApi called with ${dbTrades.length} open trades from database`);
-
       const openTrades = await Promise.all(dbTrades.map(async (dbTrade: OpenTrade) => {
         try {
-          console.log(`[DEBUG] Fetching current price for ${dbTrade.symbol}`);
           // Fetch current price from API
           const currentPriceData = await this.apiClient.getCurrentPrice(dbTrade.symbol);
-          console.log(`[DEBUG] Current price data for ${dbTrade.symbol}:`, currentPriceData);
           const currentPrice = currentPriceData ? parseFloat(currentPriceData.c) : dbTrade.entryPrice;
-          console.log(`[DEBUG] Using currentPrice ${currentPrice} for ${dbTrade.symbol} (entry: ${dbTrade.entryPrice})`);
 
           // Calculate P&L based on trade direction
           // LONG: profit when price goes UP (currentPrice - entryPrice)
@@ -285,15 +280,10 @@ export class TradingBot {
       const validTrades = openTrades.filter((trade: any) => trade !== null);
 
       if (validTrades.length > 0) {
-        const response = await axios.post(`${this.webApiUrl}/api/bot/open-trades`, validTrades, { timeout: 5000 });
-        if (response.status === 200) {
-          console.debug(`Open trades sent to API: ${validTrades.length} trades`);
-        } else {
-          console.debug(`Failed to send open trades: ${response.status}`);
-        }
+        await axios.post(`${this.webApiUrl}/api/bot/open-trades`, validTrades, { timeout: 5000 });
       }
     } catch (error: any) {
-      console.debug(`Could not send open trades to web API: ${error.message}`);
+      // Silently handle API communication errors
     }
   }
 

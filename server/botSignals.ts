@@ -84,6 +84,8 @@ class BotSignalsManager {
   private initialized: boolean = false;
   private activeSignals: Map<string, BotSignal> = new Map();
   private activePatterns: Map<string, BotPattern> = new Map();
+  // Cache for latest open trade data (including current prices and P&L)
+  private openTradesCache: Map<string, OpenTrade> = new Map();
 
   // Initialize by loading data from database
   async initialize(): Promise<void> {
@@ -358,15 +360,58 @@ class BotSignalsManager {
     await this.initialize();
 
     try {
-      // First, mark all existing open trades as closed (they might be stale)
-      await db
-        .update(trades)
-        .set({ status: "closed", exitTime: new Date() })
+      // Get all existing open trades
+      const existingTrades = await db
+        .select()
+        .from(trades)
         .where(eq(trades.status, "open"));
 
-      // Then insert the new open trades
+      // Create a map of existing trades by a unique key (symbol + entryTime)
+      const existingTradesMap = new Map(
+        existingTrades.map(t => [
+          `${t.symbol}_${t.entryTime.getTime()}`,
+          t
+        ])
+      );
+
+      // Update or insert each trade
       for (const trade of openTrades) {
-        await this.addOpenTrade(trade);
+        const tradeKey = `${trade.symbol}_${trade.entryTime}`;
+        const existingTrade = existingTradesMap.get(tradeKey);
+
+        // Cache the latest trade data (with current price and P&L)
+        this.openTradesCache.set(tradeKey, trade);
+
+        if (existingTrade) {
+          // Update existing trade with current price and P&L
+          await db
+            .update(trades)
+            .set({
+              // Don't update entryPrice, symbol, tradeType, positionSize - they're immutable
+              // Just update the calculated/dynamic fields that the bot sends
+              stopLossPrice: trade.stopLossPrice,
+              takeProfitPrice: trade.takeProfitPrice,
+            })
+            .where(eq(trades.id, existingTrade.id));
+          
+          existingTradesMap.delete(tradeKey);
+        } else {
+          // New trade - insert it
+          await this.addOpenTrade(trade);
+        }
+      }
+
+      // Any remaining trades in the map are no longer active - close them
+      const tradesToClose = Array.from(existingTradesMap.values());
+      for (const existingTrade of tradesToClose) {
+        await db
+          .update(trades)
+          .set({ status: "closed", exitTime: new Date() })
+          .where(eq(trades.id, existingTrade.id));
+        
+        // Remove from cache
+        const tradeKey = `${existingTrade.symbol}_${existingTrade.entryTime.getTime()}`;
+        this.openTradesCache.delete(tradeKey);
       }
 
       console.log(`[DB] Updated open trades: ${openTrades.length} active positions`);
@@ -386,21 +431,32 @@ class BotSignalsManager {
         .where(eq(trades.status, "open"))
         .orderBy(desc(trades.entryTime));
 
-      return tradeRecords.map(record => ({
-        id: record.id.toString(),
-        symbol: record.symbol,
-        tradeType: (record.tradeType as "long" | "short") || "long",
-        entryPrice: record.entryPrice,
-        currentPrice: record.entryPrice, // Will be updated by trading bot
-        positionSize: record.positionSize || 0,
-        entryTime: record.entryTime.getTime(),
-        unrealizedPnlUsd: 0, // Will be calculated by trading bot
-        stopLossPrice: record.stopLossPrice,
-        takeProfitPrice: record.takeProfitPrice,
-        riskAmountUsd: record.riskAmountUsd || 0,
-        duration: Math.floor((Date.now() - record.entryTime.getTime()) / 1000),
-        isAggressive: record.isAggressive || false,
-      }));
+      return tradeRecords.map(record => {
+        const tradeKey = `${record.symbol}_${record.entryTime.getTime()}`;
+        const cachedTrade = this.openTradesCache.get(tradeKey);
+
+        if (cachedTrade) {
+          // Return cached data with current prices and P&L
+          return cachedTrade;
+        }
+
+        // Fallback to database values if no cache (shouldn't happen normally)
+        return {
+          id: record.id.toString(),
+          symbol: record.symbol,
+          tradeType: (record.tradeType as "long" | "short") || "long",
+          entryPrice: record.entryPrice,
+          currentPrice: record.entryPrice,
+          positionSize: record.positionSize || 0,
+          entryTime: record.entryTime.getTime(),
+          unrealizedPnlUsd: 0,
+          stopLossPrice: record.stopLossPrice,
+          takeProfitPrice: record.takeProfitPrice,
+          riskAmountUsd: record.riskAmountUsd || 0,
+          duration: Math.floor((Date.now() - record.entryTime.getTime()) / 1000),
+          isAggressive: record.isAggressive || false,
+        };
+      });
     } catch (error) {
       console.error("[DB] Error loading open trades:", error);
       return [];
@@ -417,21 +473,32 @@ class BotSignalsManager {
         .where(and(eq(trades.status, "open"), eq(trades.symbol, symbol)))
         .orderBy(desc(trades.entryTime));
 
-      return tradeRecords.map(record => ({
-        id: record.id.toString(),
-        symbol: record.symbol,
-        tradeType: (record.tradeType as "long" | "short") || "long",
-        entryPrice: record.entryPrice,
-        currentPrice: record.entryPrice,
-        positionSize: record.positionSize || 0,
-        entryTime: record.entryTime.getTime(),
-        unrealizedPnlUsd: 0,
-        stopLossPrice: record.stopLossPrice,
-        takeProfitPrice: record.takeProfitPrice,
-        riskAmountUsd: record.riskAmountUsd || 0,
-        duration: Math.floor((Date.now() - record.entryTime.getTime()) / 1000),
-        isAggressive: record.isAggressive || false,
-      }));
+      return tradeRecords.map(record => {
+        const tradeKey = `${record.symbol}_${record.entryTime.getTime()}`;
+        const cachedTrade = this.openTradesCache.get(tradeKey);
+
+        if (cachedTrade) {
+          // Return cached data with current prices and P&L
+          return cachedTrade;
+        }
+
+        // Fallback to database values if no cache (shouldn't happen normally)
+        return {
+          id: record.id.toString(),
+          symbol: record.symbol,
+          tradeType: (record.tradeType as "long" | "short") || "long",
+          entryPrice: record.entryPrice,
+          currentPrice: record.entryPrice,
+          positionSize: record.positionSize || 0,
+          entryTime: record.entryTime.getTime(),
+          unrealizedPnlUsd: 0,
+          stopLossPrice: record.stopLossPrice,
+          takeProfitPrice: record.takeProfitPrice,
+          riskAmountUsd: record.riskAmountUsd || 0,
+          duration: Math.floor((Date.now() - record.entryTime.getTime()) / 1000),
+          isAggressive: record.isAggressive || false,
+        };
+      });
     } catch (error) {
       console.error("[DB] Error loading open trades by symbol:", error);
       return [];
