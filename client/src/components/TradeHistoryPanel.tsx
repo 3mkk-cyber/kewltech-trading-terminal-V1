@@ -69,7 +69,7 @@ export function TradeHistoryPanel() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Paper Trading Results</CardTitle>
+          <CardTitle>Trade History</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="text-sm text-gray-500">Loading...</div>
@@ -82,7 +82,7 @@ export function TradeHistoryPanel() {
     <Card className="w-full bg-background/50 border-border/50">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle>Paper Trading Results</CardTitle>
+          <CardTitle>Trade History</CardTitle>
           {stats && stats.totalTrades > 0 && (
             <div className="text-sm font-medium text-muted-foreground">
               {stats.totalTrades} trades

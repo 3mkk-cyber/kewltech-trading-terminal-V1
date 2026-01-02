@@ -3,8 +3,7 @@ import { SymbolGrid } from "@/components/SymbolGrid";
 import { BotSignalsPanel } from "@/components/BotSignalsPanel";
 import { BotPatternsPanel } from "@/components/BotPatternsPanel";
 import { OpenTradesPanel } from "@/components/OpenTradesPanel";
-import { TradeHistoryPanel } from "@/components/TradeHistoryPanel";
-import { TrendingUp, Zap, Cpu, AlertTriangle, TrendingDown } from "lucide-react";
+import { TrendingUp, Zap, Cpu, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export default function Dashboard() {
@@ -135,19 +134,6 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
-
-        {/* Trade History Section */}
-        <section className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-display flex items-center gap-2">
-              <TrendingDown className="w-5 h-5 text-primary" />
-              PAPER TRADING RESULTS
-            </h2>
-          </div>
-          <div className="bg-card/30 rounded-xl p-4 border border-border/50">
-            <TradeHistoryPanel />
-          </div>
-        </section>
 
         {/* Open Trades Section */}
         <section className="space-y-4">

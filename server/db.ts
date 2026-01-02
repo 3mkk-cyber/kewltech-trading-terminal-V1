@@ -14,7 +14,13 @@ if (!process.env.DATABASE_URL) {
 
 console.log("[DB] Initializing connection with URL:", process.env.DATABASE_URL);
 
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+export const pool = new Pool({
+  host: 'localhost',
+  port: 5432,
+  user: 'user',
+  password: 'password123',
+  database: 'kewltech_trading',
+});
 
 pool.on('error', (err) => {
   console.error('[DB] Pool error:', err);

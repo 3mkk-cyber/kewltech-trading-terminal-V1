@@ -6,6 +6,7 @@ import { api } from "@shared/routes";
 import { KewltechAnalysis, type IndicatorSignal } from "@shared/schema";
 import axios from "axios";
 import { botSignalsManager } from "./botSignals";
+import { learningEngine } from "./learningEngine";
 // We will use 'technicalindicators' package. Ensure to install it.
 import { MACD, Stochastic, RSI } from "technicalindicators";
 
@@ -446,11 +447,11 @@ export async function registerRoutes(
   });
 
   // Bot Signals Endpoints
-  app.post("/api/bot/signals", (req, res) => {
+  app.post("/api/bot/signals", async (req, res) => {
     try {
       const signal = req.body;
       console.log(`[API] Received bot signal for ${signal.symbol}: ${signal.strategy}`);
-      botSignalsManager.addSignal(signal);
+      await botSignalsManager.addSignal(signal);
       res.json({ success: true, message: "Signal recorded", id: signal.id });
     } catch (error: any) {
       console.error("[API] Error recording bot signal:", error);
@@ -458,46 +459,46 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/bot/signals", (req, res) => {
+  app.get("/api/bot/signals", async (req, res) => {
     try {
       const symbol = req.query.symbol as string | undefined;
       const signals = symbol
-        ? botSignalsManager.getSignalsBySymbol(symbol.toUpperCase())
-        : botSignalsManager.getSignals();
+        ? await botSignalsManager.getSignalsBySymbol(symbol.toUpperCase())
+        : await botSignalsManager.getSignals();
       res.json({ success: true, data: signals });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
     }
   });
 
-  app.post("/api/bot/patterns", (req, res) => {
+  app.post("/api/bot/patterns", async (req, res) => {
     try {
       const pattern = req.body;
       console.log(`[API] Received bot pattern for ${pattern.symbol}: ${pattern.patternType}`);
-      botSignalsManager.addPattern(pattern);
-      res.json({ success: true, message: "Pattern recorded", id: pattern.id });
+      const patternId = await botSignalsManager.addPattern(pattern);
+      res.json({ success: true, message: "Pattern recorded", id: patternId });
     } catch (error: any) {
       console.error("[API] Error recording bot pattern:", error);
       res.status(500).json({ success: false, message: error.message });
     }
   });
 
-  app.get("/api/bot/patterns", (req, res) => {
+  app.get("/api/bot/patterns", async (req, res) => {
     try {
       const symbol = req.query.symbol as string | undefined;
       const patterns = symbol
-        ? botSignalsManager.getPatternsBySymbol(symbol.toUpperCase())
-        : botSignalsManager.getPatterns();
+        ? await botSignalsManager.getPatternsBySymbol(symbol.toUpperCase())
+        : await botSignalsManager.getPatterns();
       res.json({ success: true, data: patterns });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
     }
   });
 
-  app.post("/api/bot/scan", (req, res) => {
+  app.post("/api/bot/scan", async (req, res) => {
     try {
       const scan = req.body;
-      botSignalsManager.recordMarketScan(scan);
+      await botSignalsManager.recordMarketScan(scan);
       res.json({ success: true, message: "Market scan recorded" });
     } catch (error: any) {
       console.error("[API] Error recording market scan:", error);
@@ -505,56 +506,56 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/bot/scan/latest", (req, res) => {
+  app.get("/api/bot/scan/latest", async (req, res) => {
     try {
-      const scan = botSignalsManager.getLatestScan();
+      const scan = await botSignalsManager.getLatestScan();
       res.json({ success: true, data: scan || null });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
     }
   });
 
-  app.get("/api/bot/scans", (req, res) => {
+  app.get("/api/bot/scans", async (req, res) => {
     try {
       const limit = parseInt(req.query.limit as string) || 20;
-      const scans = botSignalsManager.getScans(limit);
+      const scans = await botSignalsManager.getScans(limit);
       res.json({ success: true, data: scans });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
     }
   });
 
-  // Paper trading results endpoint
-  app.post("/api/bot/trades", (req, res) => {
+  // Trade history endpoint
+  app.post("/api/bot/trades", async (req, res) => {
     try {
       const trade = req.body;
-      botSignalsManager.addClosedTrade(trade);
+      await botSignalsManager.addClosedTrade(trade);
       res.json({ success: true, data: trade });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
     }
   });
 
-  app.get("/api/bot/trades", (req, res) => {
+  app.get("/api/bot/trades", async (req, res) => {
     try {
       const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
       const symbol = req.query.symbol as string | undefined;
       
       let trades;
       if (symbol) {
-        trades = botSignalsManager.getClosedTradesBySymbol(symbol);
+        trades = await botSignalsManager.getClosedTradesBySymbol(symbol);
       } else {
-        trades = botSignalsManager.getClosedTrades(limit);
+        trades = await botSignalsManager.getClosedTrades(limit);
       }
       
-      const stats = botSignalsManager.getTradeStats();
+      const stats = await botSignalsManager.getTradeStats();
       res.json({ success: true, data: trades, stats });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
     }
   });
 
-  app.post("/api/bot/open-trades", (req, res) => {
+  app.post("/api/bot/open-trades", async (req, res) => {
     try {
       // Handle both direct array format and nested format from trading bot
       let trades = req.body;
@@ -566,6 +567,7 @@ export async function registerRoutes(
       const transformedTrades = trades.map((trade: any) => ({
         id: trade.id,
         symbol: trade.symbol,
+        tradeType: trade.tradeType || "long",
         entryPrice: trade.entryPrice,
         currentPrice: trade.currentPrice,
         positionSize: trade.positionSize,
@@ -578,25 +580,39 @@ export async function registerRoutes(
         isAggressive: trade.isAggressive || true, // Default to true for 5m trades
       }));
 
-      botSignalsManager.setOpenTrades(transformedTrades);
+      await botSignalsManager.setOpenTrades(transformedTrades);
       res.json({ success: true, data: transformedTrades });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
     }
   });
 
-  app.get("/api/bot/open-trades", (req, res) => {
+  app.get("/api/bot/open-trades", async (req, res) => {
     try {
       const symbol = req.query.symbol as string | undefined;
       
       let trades;
       if (symbol) {
-        trades = botSignalsManager.getOpenTradesBySymbol(symbol);
+        trades = await botSignalsManager.getOpenTradesBySymbol(symbol);
       } else {
-        trades = botSignalsManager.getOpenTrades();
+        trades = await botSignalsManager.getOpenTrades();
       }
       
       res.json({ success: true, data: trades });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // Learning engine performance data endpoint
+  app.get("/api/learning/performance", async (req, res) => {
+    try {
+      const learningData = learningEngine.exportLearningData();
+      res.json({ 
+        success: true, 
+        data: learningData,
+        summary: learningEngine.getPerformanceSummary()
+      });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
     }

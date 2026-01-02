@@ -9,7 +9,6 @@ import { db } from "./db";
 import { analysisLogs } from "@shared/schema";
 import { sql } from "drizzle-orm";
 import { TradingBot } from "./tradingBot";
-import { TradingBot } from "./tradingBot";
 
 const app = express();
 const httpServer = createServer(app);

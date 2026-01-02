@@ -589,7 +589,6 @@ export class PatternRecognizer {
                     ? klinesForDetection[klinesForDetection.length - 1].close * 1.03 // 3% above for bullish
                     : klinesForDetection[klinesForDetection.length - 1].close * 0.97, // 3% below for bearish
                   signalTime: new Date(),
-                  confidence: 0.7,
                   patternDetails: detectedPattern
                 };
                 // Process the synthetic signal

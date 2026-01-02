@@ -6,6 +6,7 @@ import { TrendingUp } from "lucide-react";
 interface OpenTrade {
   id: string;
   symbol: string;
+  tradeType: "long" | "short";
   entryPrice: number;
   currentPrice: number;
   positionSize: number;
@@ -147,6 +148,9 @@ export function OpenTradesPanel() {
                   <th className="text-left px-3 py-2 font-semibold text-foreground">
                     Symbol
                   </th>
+                  <th className="text-center px-3 py-2 font-semibold text-foreground">
+                    Direction
+                  </th>
                   <th className="text-right px-3 py-2 font-semibold text-foreground">
                     Entry
                   </th>
@@ -187,6 +191,17 @@ export function OpenTradesPanel() {
                     >
                       <td className="px-3 py-2 font-semibold text-foreground">
                         {trade.symbol}
+                      </td>
+                      <td className="text-center px-3 py-2">
+                        <Badge
+                          variant="outline"
+                          className={trade.tradeType === "long" 
+                            ? "bg-green-500/20 text-green-300 border-green-500/30 font-semibold"
+                            : "bg-red-500/20 text-red-300 border-red-500/30 font-semibold"
+                          }
+                        >
+                          {trade.tradeType.toUpperCase()}
+                        </Badge>
                       </td>
                       <td className="text-right px-3 py-2 text-foreground">
                         ${trade.entryPrice.toFixed(2)}
