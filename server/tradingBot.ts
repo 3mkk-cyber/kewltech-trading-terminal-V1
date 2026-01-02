@@ -8,6 +8,8 @@ import axios from 'axios';
 import { WoofiProAPIClient } from './woofiApiClient';
 import { PatternRecognizer } from './patternRecognizer';
 import { RiskManager } from './riskManager';
+import { learningEngine } from './learningEngine';
+import { botSignalsManager, OpenTrade } from './botSignals';
 import { Pattern, TradeSignal, ActiveTrade, Kline } from './dataModels';
 import {
   ACCOUNT_EQUITY_USD,
@@ -18,8 +20,6 @@ import {
   AUTO_TRADE_ON_PATTERN_DETECTION,
   AUTO_TRADE_ON_BREAKOUT,
   AGGRESSIVE_MODE,
-  AUTO_TRADE_ON_PATTERN_DETECTION,
-  AUTO_TRADE_ON_BREAKOUT,
   AGGRESSIVE_5M_SYMBOLS,
   SCAN_5M_ENABLED,
   SCAN_5M_INTERVAL_SECONDS,
@@ -51,6 +51,14 @@ export class TradingBot {
     this.closedTrades = [];
     this.webApiUrl = "http://localhost:5000";
     console.log("TradingBot initialized.");
+    
+    // Initialize learning engine
+    learningEngine.initialize().then(() => {
+      console.log("\x1b[92m[AI] Learning Engine activated\x1b[0m");
+      console.log(learningEngine.getPerformanceSummary());
+    }).catch(err => {
+      console.error("[AI] Failed to initialize learning engine:", err);
+    });
   }
 
   start(): void {
@@ -223,45 +231,58 @@ export class TradingBot {
 
   private async sendOpenTradesToApi(): Promise<void> {
     try {
-      if (this.activeTrades.length === 0) {
+      // Load open trades from database instead of relying on in-memory state
+      // This ensures we update P&L even after server restarts
+      const dbTrades = await botSignalsManager.getOpenTrades();
+      
+      if (dbTrades.length === 0) {
         return;
       }
 
-      console.log(`[DEBUG] sendOpenTradesToApi called with ${this.activeTrades.length} active trades`);
+      console.log(`[DEBUG] sendOpenTradesToApi called with ${dbTrades.length} open trades from database`);
 
-      const openTrades = await Promise.all(this.activeTrades.map(async (trade) => {
+      const openTrades = await Promise.all(dbTrades.map(async (dbTrade: OpenTrade) => {
         try {
-          console.log(`[DEBUG] Fetching current price for ${trade.signal.symbol}`);
+          console.log(`[DEBUG] Fetching current price for ${dbTrade.symbol}`);
           // Fetch current price from API
-          const currentPriceData = await this.apiClient.getCurrentPrice(trade.signal.symbol);
-          console.log(`[DEBUG] Current price data for ${trade.signal.symbol}:`, currentPriceData);
-          const currentPrice = currentPriceData ? parseFloat(currentPriceData.c) : trade.signal.entryPrice;
-          console.log(`[DEBUG] Using currentPrice ${currentPrice} for ${trade.signal.symbol} (entry: ${trade.signal.entryPrice})`);
+          const currentPriceData = await this.apiClient.getCurrentPrice(dbTrade.symbol);
+          console.log(`[DEBUG] Current price data for ${dbTrade.symbol}:`, currentPriceData);
+          const currentPrice = currentPriceData ? parseFloat(currentPriceData.c) : dbTrade.entryPrice;
+          console.log(`[DEBUG] Using currentPrice ${currentPrice} for ${dbTrade.symbol} (entry: ${dbTrade.entryPrice})`);
 
-          const unrealizedPnl = (currentPrice - trade.signal.entryPrice) * (trade.signal.positionSize || 0);
+          // Calculate P&L based on trade direction
+          // LONG: profit when price goes UP (currentPrice - entryPrice)
+          // SHORT: profit when price goes DOWN (entryPrice - currentPrice)
+          let unrealizedPnl: number;
+          if (dbTrade.tradeType === "short") {
+            unrealizedPnl = (dbTrade.entryPrice - currentPrice) * (dbTrade.positionSize || 0);
+          } else {
+            unrealizedPnl = (currentPrice - dbTrade.entryPrice) * (dbTrade.positionSize || 0);
+          }
           const fees = Math.abs(unrealizedPnl) * 0.0005;
 
           return {
-            id: trade.entryOrderId || `TRADE_${trade.signal.symbol}_${trade.entryTime.getTime()}`,
-            symbol: trade.signal.symbol,
-            entryPrice: trade.signal.entryPrice,
+            id: dbTrade.id,
+            symbol: dbTrade.symbol,
+            tradeType: dbTrade.tradeType,
+            entryPrice: dbTrade.entryPrice,
             currentPrice,
-            positionSize: trade.signal.positionSize || 0,
-            entryTime: trade.entryTime.getTime(),
-            stopLossPrice: trade.signal.stopLossPrice,
-            takeProfitPrice: trade.signal.takeProfitPrice,
+            positionSize: dbTrade.positionSize || 0,
+            entryTime: dbTrade.entryTime,
+            stopLossPrice: dbTrade.stopLossPrice,
+            takeProfitPrice: dbTrade.takeProfitPrice,
             unrealizedPnlUsd: parseFloat(unrealizedPnl.toFixed(2)),
-            riskAmountUsd: trade.signal.riskAmountUsd || 0,
-            duration: Math.floor((Date.now() - trade.entryTime.getTime()) / 1000),
-            isAggressive: trade.signal.interval === "5m" ? false : true
+            riskAmountUsd: dbTrade.riskAmountUsd || 0,
+            duration: Math.floor((Date.now() - dbTrade.entryTime) / 1000),
+            isAggressive: dbTrade.isAggressive
           };
         } catch (e) {
-          console.debug(`Error preparing open trade data for ${trade.signal.symbol}:`, e);
+          console.debug(`Error preparing open trade data for ${dbTrade.symbol}:`, e);
           return null;
         }
       }));
 
-      const validTrades = openTrades.filter(trade => trade !== null);
+      const validTrades = openTrades.filter((trade: any) => trade !== null);
 
       if (validTrades.length > 0) {
         const response = await axios.post(`${this.webApiUrl}/api/bot/open-trades`, validTrades, { timeout: 5000 });
@@ -405,11 +426,13 @@ export class TradingBot {
     let takeProfitPrice: number;
 
     if (signal.tradeType === "long") {
-      stopLossPrice = Math.max(signal.stopLossPrice, signal.entryPrice - stopDistance);
-      takeProfitPrice = Math.min(signal.takeProfitPrice, signal.entryPrice + (stopDistance * 2)); // 2:1 reward ratio
+      // LONG: SL below entry, TP above entry
+      stopLossPrice = Math.min(signal.stopLossPrice, signal.entryPrice - stopDistance);
+      takeProfitPrice = Math.max(signal.takeProfitPrice, signal.entryPrice + (stopDistance * 2)); // 2:1 reward ratio
     } else {
-      stopLossPrice = Math.min(signal.stopLossPrice, signal.entryPrice + stopDistance);
-      takeProfitPrice = Math.max(signal.takeProfitPrice, signal.entryPrice - (stopDistance * 2));
+      // SHORT: SL above entry, TP below entry
+      stopLossPrice = Math.max(signal.stopLossPrice, signal.entryPrice + stopDistance);
+      takeProfitPrice = Math.min(signal.takeProfitPrice, signal.entryPrice - (stopDistance * 2));
     }
 
     // Validate stop loss distance
@@ -548,7 +571,48 @@ export class TradingBot {
   }
 
   private async processSignals(signals: TradeSignal[]): Promise<void> {
-    if (!signals.length) {
+    console.log(`\n[AI] Evaluating ${signals.length} signals with learning engine...`);
+    
+    // Filter signals using learned performance data
+    const filteredSignals: TradeSignal[] = [];
+    
+    for (const signal of signals) {
+      // Check if this signal should be filtered based on poor historical performance
+      const shouldFilter = learningEngine.shouldFilterSignal({
+        symbol: signal.symbol,
+        strategy: signal.strategy,
+        interval: signal.interval
+      });
+      
+      if (shouldFilter) {
+        console.log(`[AI] ✗ Filtered signal: ${signal.symbol} ${signal.strategy} (poor historical performance)`);
+        continue;
+      }
+      
+      // Calculate quality score for this signal
+      const qualityFactors = await learningEngine.calculateTradeQuality({
+        symbol: signal.symbol,
+        strategy: signal.strategy,
+        interval: signal.interval,
+        tradeType: signal.tradeType
+      });
+      
+      console.log(`[AI] ${signal.symbol} ${signal.strategy}:`);
+      console.log(`     Quality Score: ${qualityFactors.overallScore.toFixed(1)}/100`);
+      console.log(`     Strategy: ${qualityFactors.strategyScore.toFixed(0)} | Symbol: ${qualityFactors.symbolScore.toFixed(0)} | Pattern: ${qualityFactors.patternScore.toFixed(0)}`);
+      
+      // Only accept signals with quality score above threshold
+      if (qualityFactors.overallScore >= 45) {
+        filteredSignals.push(signal);
+        console.log(`[AI] ✓ Signal accepted (score: ${qualityFactors.overallScore.toFixed(1)})`);
+      } else {
+        console.log(`[AI] ✗ Signal rejected (score too low: ${qualityFactors.overallScore.toFixed(1)})`);
+      }
+    }
+    
+    console.log(`[AI] Filtered ${signals.length} signals down to ${filteredSignals.length} high-quality signals\n`);
+    
+    if (!filteredSignals.length) {
       return;
     }
 
@@ -559,14 +623,23 @@ export class TradingBot {
 
       const finalizedSignal = this.riskManager.calculateTradeParameters(signal);
       if (finalizedSignal && finalizedSignal.positionSize) {
+        // Apply adaptive position sizing based on learned strategy performance
+        const originalSize = finalizedSignal.positionSize;
+        const adaptedSize = learningEngine.adaptPositionSize(originalSize, signal.strategy);
+        
+        if (Math.abs(adaptedSize - originalSize) > 0.01) {
+          console.log(`[AI] Adaptive sizing: ${originalSize.toFixed(4)} → ${adaptedSize.toFixed(4)} (${signal.strategy})`);
+          finalizedSignal.positionSize = adaptedSize;
+        }
+        
         console.log(`  Finalized: Pos Size: ${finalizedSignal.positionSize.toFixed(4)} ${finalizedSignal.symbol}, Risk: $${finalizedSignal.riskAmountUsd?.toFixed(2)}`);
 
         // Send signal to web API for browser display
         await this.sendSignalToApi(signal, finalizedSignal);
 
-        // PAPER TRADING SIMULATION (ENABLED)
+        // Execute trade
         console.log(`\n\x1b[92m${'='.repeat(60)}`);
-        console.log(`[PAPER TRADING] Executing simulated order for ${finalizedSignal.symbol}`);
+        console.log(`[TRADE EXECUTION] Opening position for ${finalizedSignal.symbol}`);
         console.log(`${'='.repeat(60)}\\x1b[0m`);
 
         try {
@@ -580,7 +653,7 @@ export class TradingBot {
             console.warn(`  Could not fetch market price, using signal entry price: ${executionPrice.toFixed(4)}`);
           }
 
-          const orderId = `PAPER_${finalizedSignal.symbol}_${Date.now()}`;
+          const orderId = `TRADE_${finalizedSignal.symbol}_${Date.now()}`;
           const activeTrade: ActiveTrade = {
             signal: finalizedSignal,
             entryTime: new Date(),
@@ -593,7 +666,7 @@ export class TradingBot {
 
           this.activeTrades.push(activeTrade);
 
-          console.log(`  ✓ Order EXECUTED (PAPER TRADING)`);
+          console.log(`  ✓ Order EXECUTED`);
           console.log(`    Order ID: ${orderId}`);
           console.log(`    Entry Price: $${executionPrice.toFixed(4)}`);
           console.log(`    Position Size: ${finalizedSignal.positionSize.toFixed(4)} ${finalizedSignal.symbol}`);
@@ -604,7 +677,7 @@ export class TradingBot {
           console.log(`\\x1b[92m${'='.repeat(60)}\\x1b[0m\n`);
 
         } catch (e) {
-          console.error(`  ✗ FAILED to execute paper trade for ${finalizedSignal.symbol}: ${e}`);
+          console.error(`  ✗ FAILED to execute trade for ${finalizedSignal.symbol}: ${e}`);
         }
       } else {
         console.warn(`  -> Signal for ${signal.symbol} discarded by risk management or calculation failed.`);
@@ -677,7 +750,7 @@ export class TradingBot {
           trade.feesUsd = Math.abs(pnl) * 0.0005;
 
           console.log(`\n\\x1b[95m${'='.repeat(60)}`);
-          console.log(`[PAPER TRADING] Trade Closed - ${exitReason}`);
+          console.log(`[TRADE CLOSED] ${exitReason}`);
           console.log(`${'='.repeat(60)}\\x1b[0m`);
           console.log(`  Symbol: ${trade.signal.symbol}`);
           console.log(`  Entry Price: $${entryPrice.toFixed(4)}`);
@@ -710,7 +783,7 @@ export class TradingBot {
     // Log summary of open trades
     const openCount = this.activeTrades.filter(t => t.status === "OPEN").length;
     if (openCount > 0) {
-      console.log(`[PAPER TRADING] ${openCount} trade(s) still open`);
+      console.log(`[ACTIVE POSITIONS] ${openCount} trade(s) open`);
     }
   }
 
