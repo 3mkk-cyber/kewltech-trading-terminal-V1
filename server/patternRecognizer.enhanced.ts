@@ -638,7 +638,7 @@ export class EnhancedPatternRecognizer {
 
   async scanAndGenerateSignals(currentTimeUtc: Date): Promise<TradeSignal[]> {
     const generatedSignals: TradeSignal[] = [];
-    const swingIntervals = ["15m", "1h"];
+    const swingIntervals = ["5m", "15m", "1h", "4h"];
 
     for (const symbol of MONITORED_SYMBOLS) {
       console.debug(`[SCAN] Analyzing ${symbol}...`);

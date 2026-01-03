@@ -596,7 +596,7 @@ export class PatternRecognizer {
 
   async scanAndGenerateSignals(currentTimeUtc: Date): Promise<TradeSignal[]> {
     const generatedSignals: TradeSignal[] = [];
-    const swingIntervals = ["15m", "1h"];
+    const swingIntervals = ["5m", "15m", "1h", "4h"];
 
     // Scan standard intervals for all symbols
     for (const symbol of MONITORED_SYMBOLS) {

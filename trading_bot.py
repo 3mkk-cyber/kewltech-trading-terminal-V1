@@ -791,7 +791,7 @@ class PatternRecognizer:
 
     def scan_and_generate_signals(self, current_time_utc: datetime) -> List[TradeSignal]:
         generated_signals: List[TradeSignal] = []
-        swing_intervals = ["15m", "1h"]
+        swing_intervals = ["5m", "15m", "1h", "4h"]
         
         # Scan standard intervals for all symbols
         for symbol in MONITORED_SYMBOLS:
