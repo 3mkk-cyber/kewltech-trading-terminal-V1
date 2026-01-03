@@ -316,7 +316,7 @@ python trading_bot.py
 - Reduced position sizing for 5m trades
 - Tight SL/TP for rapid exits
 
-**v1.0** - Original Kewltech bot
+**v1.0** - Original DepthSignals bot
 - 15m/1h wedge pattern detection
 - Auto-trading on pattern formation/breakout
 - Standard risk management

@@ -166,7 +166,7 @@ export interface IndicatorValue {
   d?: number; // For Stoch
 }
 
-export interface KewltechAnalysis {
+export interface DepthSignalsAnalysis {
   timestamp: number;
   symbol: string;
   price: number;

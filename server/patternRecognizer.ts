@@ -1,7 +1,7 @@
 // ==============================================================================
 // FILE: patternRecognizer.ts (Content)
 // ==============================================================================
-// Implements Kewltech-inspired pattern detection logic
+// Implements DepthSignals-inspired pattern detection logic
 // ==============================================================================
 
 import { WoofiProAPIClient } from './woofiApiClient';
@@ -608,7 +608,7 @@ export class PatternRecognizer {
           // WEDGE_LOOKBACK_CANDLES is the number of candles to fetch.
           const klinesForDetection = await this.apiClient.getKlines(symbol, interval, WEDGE_LOOKBACK_CANDLES);
           if (klinesForDetection) { // API returns newest first
-            // Use Kewltech method with EMA-filtered pattern detection
+            // Use DepthSignals method with EMA-filtered pattern detection
             const detectedPattern = this.detectWedgePattern(symbol, interval, klinesForDetection);
             if (detectedPattern) {
               this.activePatterns.set(patternKey, detectedPattern);
@@ -618,7 +618,7 @@ export class PatternRecognizer {
               }
               // Log EMA context for the pattern
               const emaTrends = getEMATrend(klinesForDetection, EMA_PERIODS);
-              console.info(`[KEWLTECH] Potential Pattern Detected: ${detectedPattern.patternType} for ${symbol} ${interval}`);
+              console.info(`[DEPTHSIGNALS] Potential Pattern Detected: ${detectedPattern.patternType} for ${symbol} ${interval}`);
               console.info(`  EMA Trends: ${Object.entries(emaTrends).map(([k, v]) => `EMA${k}:${v}`).join(', ')}`);
 
               // Create signal from pattern detection for dashboard visibility

@@ -375,7 +375,7 @@ class DatabaseManager:
 def print_dashboard(db_manager: DatabaseManager):
     """Print trading dashboard from database"""
     print("\n" + "="*80)
-    print("KEWLTECH TRADING BOT - DATABASE DASHBOARD")
+    print("DEPTHSIGNALS TRADING BOT - DATABASE DASHBOARD")
     print("="*80)
     
     # Recent patterns
@@ -433,7 +433,7 @@ def print_dashboard(db_manager: DatabaseManager):
 
 def main():
     """Main function - initialize database and print dashboard"""
-    logger.info("Starting Kewltech Trading Bot - Data Persistence Module")
+    logger.info("Starting DepthSignals Trading Bot - Data Persistence Module")
     
     try:
         # Initialize database manager

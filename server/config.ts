@@ -1,7 +1,7 @@
 // ==============================================================================
 // FILE: config.ts (Content)
 // ==============================================================================
-// Configuration for Kewltech-Inspired Trading Bot
+// Configuration for DepthSignals-Inspired Trading Bot
 // ==============================================================================
 
 // --- API Configuration ---
@@ -59,7 +59,7 @@ export const LOG_LEVEL = "INFO"; // DEBUG, INFO, WARNING, ERROR
 export const LOG_FILE = "trading_bot.log";
 
 // --- EMA Parameters (for potential trend filtering/confirmation) ---
-export const EMA_PERIODS = [13, 34, 244, 610]; // Kewltech mentioned EMAs
+export const EMA_PERIODS = [13, 34, 244, 610]; // DepthSignals mentioned EMAs
 
 // --- Pivot Point Detection Window ---
 export const PIVOT_WINDOW_SIZE = 2; // Bars on each side for pivot point detection

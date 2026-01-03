@@ -1,8 +1,8 @@
-# Kewltech Trading Terminal - Paper Trading Module
+# DepthSignals Trading Terminal - Paper Trading Module
 
 ## Overview
 
-The paper trading module in the Kewltech Trading Terminal V1 enables **simulated trade execution** without risking real capital. The bot detects trading patterns, generates signals, and automatically executes paper trades with realistic P&L tracking.
+The paper trading module in the DepthSignals Trading Terminal V1 enables **simulated trade execution** without risking real capital. The bot detects trading patterns, generates signals, and automatically executes paper trades with realistic P&L tracking.
 
 ## Paper Trading Features
 
@@ -127,10 +127,10 @@ python trading_bot.py
 ### Expected Output
 ```
 ================================================================================
-KEWLTECH TRADING BOT - PAPER TRADING MODULE
+DEPTHSIGNALS TRADING BOT - PAPER TRADING MODULE
 ================================================================================
 
-[KEWLTECH] Potential Pattern Detected: BULLISH_WEDGE for SPOT_ETH_USDT 15m
+[DEPTHSIGNALS] Potential Pattern Detected: BULLISH_WEDGE for SPOT_ETH_USDT 15m
 
 --- Processing 1 New Trade Signal(s) ---
 

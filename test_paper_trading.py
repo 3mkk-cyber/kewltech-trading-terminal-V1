@@ -31,7 +31,7 @@ def test_paper_trading():
     """Test paper trading simulation"""
     
     logger.info("\n" + "="*80)
-    logger.info("KEWLTECH TRADING BOT - PAPER TRADING TEST")
+    logger.info("DEPTHSIGNALS TRADING BOT - PAPER TRADING TEST")
     logger.info("="*80)
     
     # Initialize risk manager

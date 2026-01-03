@@ -1,7 +1,7 @@
 # Trading Terminal Session Summary
 
 ## Overview
-Successfully enhanced the Kewltech trading terminal with persistent trade signal storage, API integration, and dashboard communication.
+Successfully enhanced the DepthSignals trading terminal with persistent trade signal storage, API integration, and dashboard communication.
 
 ## Key Implementations
 

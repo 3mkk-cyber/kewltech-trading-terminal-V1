@@ -1,4 +1,4 @@
-# Kewltech Trading Terminal V1
+# DepthSignals Trading Terminal V1
 
 🚀 **AI-Powered Cryptocurrency Trading Bot with Advanced Pattern Recognition**
 
@@ -97,7 +97,7 @@ WOOFI_API_SECRET=your_api_secret_here
 WOOFI_APPLICATION_ID=your_app_id_here
 
 # Database Configuration
-DATABASE_URL=postgresql://user:password@localhost:5432/kewltech_trading
+DATABASE_URL=postgresql://user:password@localhost:5432/depthsignals_trading
 
 # Server Configuration
 PORT=5000
@@ -381,10 +381,10 @@ Returns technical analysis for all monitored symbols.
 ### Database Backups
 ```bash
 # Backup database
-docker exec kewltech-postgres pg_dump -U user kewltech_trading > backup.sql
+docker exec depthsignals-postgres pg_dump -U user depthsignals_trading > backup.sql
 
 # Restore database
-docker exec -i kewltech-postgres psql -U user kewltech_trading < backup.sql
+docker exec -i depthsignals-postgres psql -U user depthsignals_trading < backup.sql
 ```
 
 ---
@@ -461,7 +461,7 @@ This project is private and proprietary. Unauthorized copying, distribution, or 
 
 ## 👤 Author
 
-**Kewltech Team**
+**DepthSignals Team**
 - GitHub: [@3mkk-cyber](https://github.com/3mkk-cyber)
 - Repository: [kewltech-trading-terminal-V1](https://github.com/3mkk-cyber/kewltech-trading-terminal-V1)
 

@@ -1,5 +1,5 @@
 # ==============================================================================
-# Kewltech-Inspired Trading Bot - Consolidated Script
+# DepthSignals-Inspired Trading Bot - Consolidated Script
 #
 # DISCLAIMER: This software is for educational and research purposes only.
 # Trading cryptocurrencies carries a high level of risk. Past performance
@@ -25,7 +25,7 @@ from scipy import stats
 # FILE: config.py (Content)
 # ==============================================================================
 """
-Configuration for Kewltech-Inspired Trading Bot
+Configuration for DepthSignals-Inspired Trading Bot
 """
 
 # --- API Configuration ---
@@ -77,7 +77,7 @@ LOG_LEVEL = "INFO" # DEBUG, INFO, WARNING, ERROR
 LOG_FILE = "trading_bot.log"
 
 # --- EMA Parameters (for potential trend filtering/confirmation) ---
-EMA_PERIODS = [13, 34, 244, 610] # Kewltech mentioned EMAs
+EMA_PERIODS = [13, 34, 244, 610] # DepthSignals mentioned EMAs
 
 # --- Pivot Point Detection Window ---
 PIVOT_WINDOW_SIZE = 2 # Bars on each side for pivot point detection
@@ -358,7 +358,7 @@ class WoofiProAPIClient:
 # FILE: pattern_recognition.py (Content)
 # ==============================================================================
 """
-Implements Kewltech-inspired pattern detection logic
+Implements DepthSignals-inspired pattern detection logic
 """
 logger = logging.getLogger(__name__)
 
@@ -774,9 +774,9 @@ class PatternRecognizer:
             logger.warning(f"Error executing 5m signal for {symbol}: {e}")
 
 
-    def _detect_kewltech_pattern(self, symbol: str, interval: str, klines: List[Kline]) -> Optional[Pattern]:
+    def _detect_depthsignals_pattern(self, symbol: str, interval: str, klines: List[Kline]) -> Optional[Pattern]:
         """
-        Kewltech pattern detection using EMA trends as primary filter.
+        DepthSignals pattern detection using EMA trends as primary filter.
         Detects wedge patterns where EMA trends align with price structure.
         """
         if len(klines) < WEDGE_MIN_PIVOTS_FOR_TRENDLINE * 2:
@@ -803,8 +803,8 @@ class PatternRecognizer:
                     # WEDGE_LOOKBACK_CANDLES is the number of candles to fetch.
                     klines_for_detection = self.api_client.get_klines(symbol, interval, WEDGE_LOOKBACK_CANDLES)
                     if klines_for_detection: # API returns newest first
-                        # Use Kewltech method with EMA-filtered pattern detection
-                        detected_pattern = self._detect_kewltech_pattern(symbol, interval, klines_for_detection)
+                        # Use DepthSignals method with EMA-filtered pattern detection
+                        detected_pattern = self._detect_depthsignals_pattern(symbol, interval, klines_for_detection)
                         if detected_pattern: 
                             self.active_patterns[pattern_key] = detected_pattern
                             # Send pattern to web API
@@ -812,7 +812,7 @@ class PatternRecognizer:
                                 self.trading_bot._send_pattern_to_api(symbol, interval, detected_pattern.pattern_type, is_forming=True)
                             # Log EMA context for the pattern
                             ema_trends = get_ema_trend(klines_for_detection, EMA_PERIODS)
-                            logger.info(f"[KEWLTECH] Potential Pattern Detected: {detected_pattern.pattern_type} for {symbol} {interval}")
+                            logger.info(f"[DEPTHSIGNALS] Potential Pattern Detected: {detected_pattern.pattern_type} for {symbol} {interval}")
                             logger.info(f"  EMA Trends: {', '.join([f'EMA{k}:{v}' for k, v in ema_trends.items()])}")
                             
                             # AUTO TRADING: Execute trade on pattern formation if enabled and within limits
@@ -931,7 +931,7 @@ class PatternRecognizer:
 # FILE: risk_management.py (Content)
 # ==============================================================================
 """
-Implements Kewltech's risk management principles
+Implements DepthSignals's risk management principles
 """
 logger = logging.getLogger(__name__)
 
@@ -1183,7 +1183,7 @@ class TradingBot:
         # \033[0;0H\033[2J  # Clear screen, move cursor to 0,0
         print("\033[0;0H\033[2J") 
         print("="*120)
-        print(" Kewltech-Inspired Trading Bot - Live Data Feed & Signal Generation")
+        print(" DepthSignals-Inspired Trading Bot - Live Data Feed & Signal Generation")
         print("="*120)
         print(f"{'Symbol':<15} {'Price':<12} {'1h Chg%':<10} {'EMA Trend (13/34/244/610)':<35} {'Volume':<15} {'Last Update':<20}")
         print("-"*120)
@@ -1385,7 +1385,7 @@ class TradingBot:
                 logger.info(f"[PAPER TRADING] {open_count} trade(s) still open")
     
     def run(self):
-        logger.info("Starting Kewltech-Inspired Trading Bot...")
+        logger.info("Starting DepthSignals-Inspired Trading Bot...")
         logger.info(f"Symbols: {MONITORED_SYMBOLS}, Scan Interval: {SCAN_INTERVAL_SECONDS}s")
         logger.info(f"Account Equity: ${ACCOUNT_EQUITY_USD:,.2f}, Risk per Trade: {RISK_PERCENTAGE_PER_TRADE*100:.2f}%")
         logger.info("Press Ctrl+C to stop.")

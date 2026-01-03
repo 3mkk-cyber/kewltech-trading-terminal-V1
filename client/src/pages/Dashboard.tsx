@@ -35,7 +35,7 @@ export default function Dashboard() {
             <div className="flex items-center gap-2 mb-0.5">
               <h1 className="text-xl md:text-2xl text-foreground font-display tracking-tight flex items-center gap-2">
                 <Zap className="w-5 h-5 text-primary fill-primary/20" />
-                KEWLTECH<span className="text-muted-foreground text-lg">TERMINAL</span>
+                DEPTHSIGNALS<span className="text-muted-foreground text-lg">TERMINAL</span>
               </h1>
               <div className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-primary/10 text-primary border border-primary/20 uppercase tracking-widest">
                 v2.0

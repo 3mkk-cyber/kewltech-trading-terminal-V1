@@ -55,7 +55,7 @@ Each market scan cycle now shows:
 ## Real-World Example from Logs
 
 ```
-[KEWLTECH] Potential Pattern Detected: Bullish Wedge for SPOT_POL_USDT 15m
+[DEPTHSIGNALS] Potential Pattern Detected: Bullish Wedge for SPOT_POL_USDT 15m
 [AUTO TRADE] Executing on pattern formation for SPOT_POL_USDT 15m
 --- Processing 1 New Trade Signal(s) ---
 [PAPER TRADING] Executing simulated order for SPOT_POL_USDT

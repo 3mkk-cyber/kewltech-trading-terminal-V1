@@ -1,7 +1,7 @@
 // ==============================================================================
 // FILE: riskManager.ts (Content)
 // ==============================================================================
-// Implements Kewltech's risk management principles with adaptive learning
+// Implements DepthSignals's risk management principles with adaptive learning
 // ==============================================================================
 
 import { TradeSignal } from './dataModels';

@@ -5,7 +5,7 @@ Generated: 2026-01-02 20:35:09
 
 ### Connection Test
 - PostgreSQL container: RUNNING and HEALTHY
-- Database: kewltech_trading
+- Database: depthsignals_trading
 - Tables: 7 total (all operational)
 
 ### Schema Validation

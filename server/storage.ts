@@ -2,7 +2,7 @@ import { db } from "./db";
 import {
   analysisLogs,
   type AnalysisLog,
-  type KewltechAnalysis,
+  type DepthSignalsAnalysis,
 } from "@shared/schema";
 import { desc, eq } from "drizzle-orm";
 
@@ -10,10 +10,10 @@ export interface IStorage {
   logAnalysis(
     symbol: string,
     price: number,
-    data: KewltechAnalysis,
+    data: DepthSignalsAnalysis,
   ): Promise<AnalysisLog>;
   getAnalysisHistory(symbol: string): Promise<AnalysisLog[]>;
-  saveAnalysis(analysis: KewltechAnalysis): Promise<void>;
+  saveAnalysis(analysis: DepthSignalsAnalysis): Promise<void>;
   getRecentAnalyses(limit: number): Promise<AnalysisLog[]>;
 }
 
@@ -21,7 +21,7 @@ export class DatabaseStorage implements IStorage {
   async logAnalysis(
     symbol: string,
     price: number,
-    data: KewltechAnalysis,
+    data: DepthSignalsAnalysis,
   ): Promise<AnalysisLog> {
     const [log] = await db
       .insert(analysisLogs)
@@ -33,7 +33,7 @@ export class DatabaseStorage implements IStorage {
     return log;
   }
 
-  async saveAnalysis(analysis: KewltechAnalysis): Promise<void> {
+  async saveAnalysis(analysis: DepthSignalsAnalysis): Promise<void> {
     await this.logAnalysis(analysis.symbol, analysis.price, analysis);
   }
 

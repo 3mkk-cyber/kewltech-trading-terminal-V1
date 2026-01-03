@@ -1,10 +1,10 @@
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
-import { KewltechAnalysis } from "@shared/schema";
+import { DepthSignalsAnalysis } from "@shared/schema";
 import { format } from "date-fns";
 import { Loader2 } from "lucide-react";
 
 interface PriceChartProps {
-  data: KewltechAnalysis[] | undefined;
+  data: DepthSignalsAnalysis[] | undefined;
   isLoading: boolean;
 }
 

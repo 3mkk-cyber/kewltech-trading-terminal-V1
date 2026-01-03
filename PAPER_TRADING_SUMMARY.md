@@ -312,7 +312,7 @@ python test_paper_trading.py
 
 ## Summary
 
-The Kewltech Trading Terminal V1 now has a **fully functional paper trading module** that:
+The DepthSignals Trading Terminal V1 now has a **fully functional paper trading module** that:
 
 1. **Automatically executes trades** from detected patterns
 2. **Tracks positions in real-time** with detailed logging

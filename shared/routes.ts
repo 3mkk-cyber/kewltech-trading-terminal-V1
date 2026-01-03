@@ -14,7 +14,7 @@ export const api = {
       method: 'GET' as const,
       path: '/api/analysis/:symbol',
       responses: {
-        200: z.custom<any>(), // Using custom any for the complex KewltechAnalysis type defined in schema
+        200: z.custom<any>(), // Using custom any for the complex DepthSignalsAnalysis type defined in schema
         500: errorSchemas.internal,
       },
     },

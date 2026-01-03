@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
-import { type KewltechAnalysis } from "@shared/schema";
+import { type DepthSignalsAnalysis } from "@shared/schema";
 
 // Helper to poll for live analysis
 export function useLiveAnalysis(symbol: string) {
@@ -17,7 +17,7 @@ export function useLiveAnalysis(symbol: string) {
           console.error(`API error: ${res.status} - ${error}`);
           throw new Error(`Failed to fetch analysis: ${res.status}`);
         }
-        const data = (await res.json()) as KewltechAnalysis;
+        const data = (await res.json()) as DepthSignalsAnalysis;
         console.log("Live analysis received:", data);
         return data;
       } catch (error) {
@@ -45,7 +45,7 @@ export function useBatchAnalysis() {
           console.error(`Batch API error: ${res.status} - ${error}`);
           throw new Error(`Failed to fetch batch analysis: ${res.status}`);
         }
-        const response = (await res.json()) as { success: boolean; data: KewltechAnalysis[]; timestamp: number };
+        const response = (await res.json()) as { success: boolean; data: DepthSignalsAnalysis[]; timestamp: number };
         console.log("Batch analysis received:", response);
         return response.data;
       } catch (error) {
@@ -73,7 +73,7 @@ export function useAnalysisHistory(symbol: string) {
           console.error(`History API error: ${res.status} - ${error}`);
           throw new Error(`Failed to fetch history: ${res.status}`);
         }
-        const data = (await res.json()) as KewltechAnalysis[];
+        const data = (await res.json()) as DepthSignalsAnalysis[];
         console.log("History received:", data);
         return data;
       } catch (error) {

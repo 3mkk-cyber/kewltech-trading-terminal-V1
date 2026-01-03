@@ -1,5 +1,5 @@
 import { useBatchAnalysis } from "@/hooks/use-analysis";
-import { KewltechAnalysis } from "@shared/schema";
+import { DepthSignalsAnalysis } from "@shared/schema";
 import { ArrowUpRight, ArrowDownRight, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
@@ -24,7 +24,7 @@ export function SymbolGrid() {
             <Card key={i} className="p-4 bg-muted/50 animate-pulse h-40" />
           ))
       ) : analyses && analyses.length > 0 ? (
-        analyses.map((analysis: KewltechAnalysis) => (
+        analyses.map((analysis: DepthSignalsAnalysis) => (
           <SymbolCard key={analysis.symbol} analysis={analysis} />
         ))
       ) : (
@@ -36,7 +36,7 @@ export function SymbolGrid() {
   );
 }
 
-function SymbolCard({ analysis }: { analysis: KewltechAnalysis }) {
+function SymbolCard({ analysis }: { analysis: DepthSignalsAnalysis }) {
   const isBullish = analysis.indicators.trend === "bullish";
   const isBearish = analysis.indicators.trend === "bearish";
 

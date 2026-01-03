@@ -2,7 +2,7 @@
 
 ## 🚀 What's New
 
-Your Kewltech Trading Terminal now has **FULLY FUNCTIONAL PAPER TRADING** enabled!
+Your DepthSignals Trading Terminal now has **FULLY FUNCTIONAL PAPER TRADING** enabled!
 
 The bot can now:
 ✅ Generate trade signals from pattern detection  
@@ -282,6 +282,6 @@ Inside the code you'll find:
 
 ---
 
-**You're all set!** The Kewltech Trading Terminal is ready to simulate trading.
+**You're all set!** The DepthSignals Trading Terminal is ready to simulate trading.
 
 Start with `python trading_bot.py` and watch the magic happen! 🚀

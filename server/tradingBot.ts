@@ -68,7 +68,7 @@ export class TradingBot {
   }
 
   start(): void {
-    console.log("Starting Kewltech-Inspired Trading Bot...");
+    console.log("Starting DepthSignals-Inspired Trading Bot...");
     console.log(`Symbols: ${MONITORED_SYMBOLS.join(', ')}, Scan Interval: ${SCAN_INTERVAL_SECONDS}s`);
     console.log(`Account Equity: $${ACCOUNT_EQUITY_USD.toLocaleString()}, Risk per Trade: ${(RISK_PERCENTAGE_PER_TRADE * 100).toFixed(2)}%`);
 
@@ -503,7 +503,7 @@ export class TradingBot {
   private printLiveDataHeader(): void {
     console.clear();
     console.log("=".repeat(120));
-    console.log(" Kewltech-Inspired Trading Bot - Live Data Feed & Signal Generation");
+    console.log(" DepthSignals-Inspired Trading Bot - Live Data Feed & Signal Generation");
     console.log("=".repeat(120));
     console.log(`${'Symbol'.padEnd(15)} ${'Price'.padEnd(12)} ${'1h Chg%'.padEnd(10)} ${'EMA Trend (13/34/244/610)'.padEnd(35)} ${'Volume'.padEnd(15)} ${'Last Update'.padEnd(20)}`);
     console.log("-".repeat(120));
@@ -889,7 +889,7 @@ export class TradingBot {
   }
 
   async run(): Promise<void> {
-    console.log("Starting Kewltech-Inspired Trading Bot...");
+    console.log("Starting DepthSignals-Inspired Trading Bot...");
     console.log(`Symbols: ${MONITORED_SYMBOLS.join(', ')}, Scan Interval: ${SCAN_INTERVAL_SECONDS}s`);
     console.log(`Account Equity: $${ACCOUNT_EQUITY_USD.toLocaleString()}, Risk per Trade: ${(RISK_PERCENTAGE_PER_TRADE * 100).toFixed(2)}%`);
     console.log("Press Ctrl+C to stop.");

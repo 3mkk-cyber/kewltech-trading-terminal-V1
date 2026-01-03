@@ -3,7 +3,7 @@ import type { Express } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
 import { api } from "@shared/routes";
-import { KewltechAnalysis, type IndicatorSignal } from "@shared/schema";
+import { DepthSignalsAnalysis, type IndicatorSignal } from "@shared/schema";
 import axios from "axios";
 import { botSignalsManager } from "./botSignals";
 import { learningEngine } from "./learningEngine";
@@ -127,7 +127,7 @@ export async function registerRoutes(
               trend = "bearish";
             }
 
-            const analysis: KewltechAnalysis = {
+            const analysis: DepthSignalsAnalysis = {
               timestamp: Date.now(),
               symbol: symbol,
               price: currentPrice,
@@ -341,7 +341,7 @@ export async function registerRoutes(
       }
 
       // 5. Store analysis result
-      const analysis: KewltechAnalysis = {
+      const analysis: DepthSignalsAnalysis = {
         timestamp: Date.now(),
         symbol: symbol,
         price: currentPrice,
