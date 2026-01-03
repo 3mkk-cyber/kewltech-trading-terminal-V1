@@ -1,10 +1,11 @@
 /**
  * Advanced Learning Engine for Trading Bot
  * Analyzes historical trade performance and adapts strategy parameters
+ * Now with persistent database storage for continuous learning
  */
 
 import { db } from "./db";
-import { trades, signals } from "@shared/schema";
+import { trades, signals, strategyPerformance, symbolPerformance, patternQuality } from "@shared/schema";
 import { eq, and, gte, desc, sql } from "drizzle-orm";
 
 export interface StrategyPerformance {
@@ -51,41 +52,213 @@ class LearningEngine {
   private symbolPerformance: Map<string, SymbolPerformance> = new Map();
   private patternQuality: Map<string, PatternQuality> = new Map();
   private lastAnalysisTime: Date = new Date(0);
+  private isInitialized: boolean = false;
   
   // Learning parameters
   private readonly MIN_SAMPLE_SIZE = 10; // Minimum trades needed for reliable statistics
   private readonly LEARNING_RATE = 0.15; // How quickly to adapt (0-1)
   private readonly RECENCY_BIAS = 0.7; // Weight recent trades more (0-1)
+  private readonly UPDATE_INTERVAL = 5 * 60 * 1000; // Update database every 5 minutes
   
   /**
-   * Initialize and load historical performance data
+   * Initialize and load performance data from database
    */
   async initialize(): Promise<void> {
-    console.log("[LEARNING] Initializing Learning Engine...");
-    await this.analyzeHistoricalPerformance();
-    console.log("[LEARNING] Learning Engine initialized");
+    console.log("[LEARNING] Initializing Learning Engine with database storage...");
+    
+    try {
+      // Load existing data from database
+      await this.loadFromDatabase();
+      
+      // Analyze any new trades since last update
+      await this.analyzeHistoricalPerformance();
+      
+      // Set up periodic updates
+      setInterval(() => this.periodicUpdate(), this.UPDATE_INTERVAL);
+      
+      this.isInitialized = true;
+      console.log("[LEARNING] Learning Engine initialized with database persistence");
+    } catch (error) {
+      console.error("[LEARNING] Failed to initialize:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Load learning data from database
+   */
+  private async loadFromDatabase(): Promise<void> {
+    try {
+      // Load strategy performance
+      const strategies = await db.select().from(strategyPerformance);
+      strategies.forEach(s => {
+        this.strategyPerformance.set(s.strategy, {
+          strategy: s.strategy,
+          totalTrades: s.totalTrades,
+          winners: s.winners,
+          losers: s.losers,
+          winRate: s.winRate,
+          avgPnl: s.avgPnl,
+          totalPnl: s.totalPnl,
+          avgDuration: s.avgDuration,
+          confidenceScore: s.confidenceScore
+        });
+      });
+
+      // Load symbol performance
+      const symbols = await db.select().from(symbolPerformance);
+      symbols.forEach(s => {
+        this.symbolPerformance.set(s.symbol, {
+          symbol: s.symbol,
+          totalTrades: s.totalTrades,
+          winRate: s.winRate,
+          avgPnl: s.avgPnl,
+          bestStrategy: s.bestStrategy || "",
+          volatilityScore: s.volatilityScore
+        });
+      });
+
+      // Load pattern quality
+      const patterns = await db.select().from(patternQuality);
+      patterns.forEach(p => {
+        const key = `${p.patternType}_${p.interval}`;
+        this.patternQuality.set(key, {
+          patternType: p.patternType,
+          interval: p.interval,
+          successRate: p.successRate,
+          avgPnl: p.avgPnl,
+          sampleSize: p.sampleSize,
+          reliability: p.reliability
+        });
+      });
+
+      console.log(`[LEARNING] Loaded from database: ${strategies.length} strategies, ${symbols.length} symbols, ${patterns.length} patterns`);
+    } catch (error) {
+      console.error("[LEARNING] Error loading from database:", error);
+    }
+  }
+
+  /**
+   * Periodic update to save learning data and analyze new trades
+   */
+  private async periodicUpdate(): Promise<void> {
+    try {
+      await this.analyzeHistoricalPerformance();
+      await this.saveToDatabase();
+    } catch (error) {
+      console.error("[LEARNING] Error during periodic update:", error);
+    }
+  }
+
+  /**
+   * Save current learning data to database
+   */
+  private async saveToDatabase(): Promise<void> {
+    try {
+      // Save strategy performance
+      for (const [strategy, perf] of Array.from(this.strategyPerformance.entries())) {
+        await db
+          .insert(strategyPerformance)
+          .values({
+            strategy: perf.strategy,
+            totalTrades: perf.totalTrades,
+            winners: perf.winners,
+            losers: perf.losers,
+            winRate: perf.winRate,
+            avgPnl: perf.avgPnl,
+            totalPnl: perf.totalPnl,
+            avgDuration: perf.avgDuration,
+            confidenceScore: perf.confidenceScore,
+            lastUpdated: new Date()
+          })
+          .onConflictDoUpdate({
+            target: strategyPerformance.strategy,
+            set: {
+              totalTrades: perf.totalTrades,
+              winners: perf.winners,
+              losers: perf.losers,
+              winRate: perf.winRate,
+              avgPnl: perf.avgPnl,
+              totalPnl: perf.totalPnl,
+              avgDuration: perf.avgDuration,
+              confidenceScore: perf.confidenceScore,
+              lastUpdated: new Date()
+            }
+          });
+      }
+
+      // Save symbol performance
+      for (const [symbol, perf] of Array.from(this.symbolPerformance.entries())) {
+        await db
+          .insert(symbolPerformance)
+          .values({
+            symbol: perf.symbol,
+            totalTrades: perf.totalTrades,
+            winRate: perf.winRate,
+            avgPnl: perf.avgPnl,
+            bestStrategy: perf.bestStrategy,
+            volatilityScore: perf.volatilityScore,
+            lastUpdated: new Date()
+          })
+          .onConflictDoUpdate({
+            target: symbolPerformance.symbol,
+            set: {
+              totalTrades: perf.totalTrades,
+              winRate: perf.winRate,
+              avgPnl: perf.avgPnl,
+              bestStrategy: perf.bestStrategy,
+              volatilityScore: perf.volatilityScore,
+              lastUpdated: new Date()
+            }
+          });
+      }
+
+      // Save pattern quality
+      for (const [key, perf] of Array.from(this.patternQuality.entries())) {
+        await db
+          .insert(patternQuality)
+          .values({
+            patternType: perf.patternType,
+            interval: perf.interval,
+            successRate: perf.successRate,
+            avgPnl: perf.avgPnl,
+            sampleSize: perf.sampleSize,
+            reliability: perf.reliability,
+            lastUpdated: new Date()
+          })
+          .onConflictDoNothing();
+      }
+
+      console.log("[LEARNING] Saved learning data to database");
+    } catch (error) {
+      console.error("[LEARNING] Error saving to database:", error);
+    }
   }
 
   /**
    * Analyze all historical trades to build performance profiles
+   * Only analyzes new trades since last update for efficiency
    */
   private async analyzeHistoricalPerformance(): Promise<void> {
     try {
-      // Get all closed trades from last 30 days
-      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      
+      // Get all closed trades since last analysis
       const closedTrades = await db
         .select()
         .from(trades)
         .where(
           and(
             eq(trades.status, "closed"),
-            gte(trades.entryTime, thirtyDaysAgo)
+            gte(trades.exitTime, this.lastAnalysisTime)
           )
         )
         .orderBy(desc(trades.exitTime));
 
-      console.log(`[LEARNING] Analyzing ${closedTrades.length} historical trades...`);
+      if (closedTrades.length === 0) {
+        console.log("[LEARNING] No new trades to analyze");
+        return;
+      }
+
+      console.log(`[LEARNING] Analyzing ${closedTrades.length} new historical trades...`);
 
       // Analyze strategy performance
       await this.analyzeStrategyPerformance(closedTrades);
@@ -97,13 +270,16 @@ class LearningEngine {
       await this.analyzePatternQuality(closedTrades);
 
       this.lastAnalysisTime = new Date();
+      
+      // Save to database after analysis
+      await this.saveToDatabase();
     } catch (error) {
       console.error("[LEARNING] Error analyzing historical performance:", error);
     }
   }
 
   /**
-   * Analyze performance by strategy type
+   * Analyze performance by strategy type (incremental updates)
    */
   private async analyzeStrategyPerformance(closedTrades: any[]): Promise<void> {
     const strategyStats = new Map<string, any>();
@@ -122,14 +298,30 @@ class LearningEngine {
 
       const strategy = signal[0].strategy;
       
-      if (!strategyStats.has(strategy)) {
-        strategyStats.set(strategy, {
+      // Get existing data or create new
+      let existing = this.strategyPerformance.get(strategy);
+      if (!existing) {
+        existing = {
           strategy,
           totalTrades: 0,
           winners: 0,
           losers: 0,
+          winRate: 0,
+          avgPnl: 0,
           totalPnl: 0,
-          totalDuration: 0,
+          avgDuration: 0,
+          confidenceScore: 0
+        };
+      }
+
+      if (!strategyStats.has(strategy)) {
+        strategyStats.set(strategy, {
+          strategy,
+          totalTrades: existing.totalTrades,
+          winners: existing.winners,
+          losers: existing.losers,
+          totalPnl: existing.totalPnl,
+          totalDuration: existing.avgDuration * existing.totalTrades,
           recentTrades: []
         });
       }
@@ -183,11 +375,11 @@ class LearningEngine {
       });
     });
 
-    console.log(`[LEARNING] Analyzed ${strategyStats.size} different strategies`);
+    console.log(`[LEARNING] Updated ${strategyStats.size} strategies`);
   }
 
   /**
-   * Analyze performance by symbol
+   * Analyze performance by symbol (incremental updates)
    */
   private async analyzeSymbolPerformance(closedTrades: any[]): Promise<void> {
     const symbolStats = new Map<string, any>();
@@ -195,12 +387,25 @@ class LearningEngine {
     for (const trade of closedTrades) {
       const symbol = trade.symbol;
       
+      // Get existing data or create new
+      let existing = this.symbolPerformance.get(symbol);
+      if (!existing) {
+        existing = {
+          symbol,
+          totalTrades: 0,
+          winRate: 0,
+          avgPnl: 0,
+          bestStrategy: "",
+          volatilityScore: 0
+        };
+      }
+
       if (!symbolStats.has(symbol)) {
         symbolStats.set(symbol, {
           symbol,
-          totalTrades: 0,
-          winners: 0,
-          totalPnl: 0,
+          totalTrades: existing.totalTrades,
+          winners: Math.round(existing.winRate * existing.totalTrades / 100),
+          totalPnl: existing.avgPnl * existing.totalTrades,
           strategies: new Map()
         });
       }
@@ -263,11 +468,11 @@ class LearningEngine {
       });
     });
 
-    console.log(`[LEARNING] Analyzed ${symbolStats.size} different symbols`);
+    console.log(`[LEARNING] Updated ${symbolStats.size} symbols`);
   }
 
   /**
-   * Analyze pattern quality and reliability
+   * Analyze pattern quality and reliability (incremental updates)
    */
   private async analyzePatternQuality(closedTrades: any[]): Promise<void> {
     const patternStats = new Map<string, any>();
@@ -285,13 +490,26 @@ class LearningEngine {
 
       const patternKey = `${signal[0].strategy}_${signal[0].interval}`;
       
+      // Get existing data or create new
+      let existing = this.patternQuality.get(patternKey);
+      if (!existing) {
+        existing = {
+          patternType: signal[0].strategy,
+          interval: signal[0].interval,
+          successRate: 0,
+          avgPnl: 0,
+          sampleSize: 0,
+          reliability: 0
+        };
+      }
+
       if (!patternStats.has(patternKey)) {
         patternStats.set(patternKey, {
           patternType: signal[0].strategy,
           interval: signal[0].interval,
-          totalTrades: 0,
-          winners: 0,
-          totalPnl: 0
+          totalTrades: existing.sampleSize,
+          winners: Math.round(existing.successRate * existing.sampleSize / 100),
+          totalPnl: existing.avgPnl * existing.sampleSize
         });
       }
 
@@ -305,17 +523,15 @@ class LearningEngine {
       stats.totalPnl += trade.netPnlUsd || 0;
     }
 
-    // Calculate reliability scores
+    // Calculate final metrics
     Array.from(patternStats.entries()).forEach(([key, stats]) => {
       const successRate = stats.totalTrades > 0 ? (stats.winners / stats.totalTrades) * 100 : 0;
       const avgPnl = stats.totalTrades > 0 ? stats.totalPnl / stats.totalTrades : 0;
-      
-      // Reliability = combination of sample size, success rate, and profitability
-      const sampleReliability = Math.min(stats.totalTrades / this.MIN_SAMPLE_SIZE, 1) * 40;
-      const successReliability = (successRate / 100) * 40;
-      const profitReliability = avgPnl > 0 ? Math.min((avgPnl / 5) * 20, 20) : 0;
-      
-      const reliability = Math.min(sampleReliability + successReliability + profitReliability, 100);
+
+      // Calculate reliability based on sample size and consistency
+      const sampleReliability = Math.min(stats.totalTrades / this.MIN_SAMPLE_SIZE, 1) * 50;
+      const performanceReliability = (successRate / 100) * 50;
+      const reliability = Math.min(sampleReliability + performanceReliability, 100);
 
       this.patternQuality.set(key, {
         patternType: stats.patternType,
@@ -327,7 +543,7 @@ class LearningEngine {
       });
     });
 
-    console.log(`[LEARNING] Analyzed ${patternStats.size} pattern-interval combinations`);
+    console.log(`[LEARNING] Updated ${patternStats.size} pattern-interval combinations`);
   }
 
   /**

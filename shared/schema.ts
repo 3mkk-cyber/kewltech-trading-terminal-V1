@@ -105,6 +105,46 @@ export const orbData = pgTable("orb_data", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Learning Engine Tables
+export const strategyPerformance = pgTable("strategy_performance", {
+  id: serial("id").primaryKey(),
+  strategy: varchar("strategy", { length: 50 }).notNull().unique(),
+  totalTrades: integer("total_trades").notNull().default(0),
+  winners: integer("winners").notNull().default(0),
+  losers: integer("losers").notNull().default(0),
+  winRate: real("win_rate").notNull().default(0),
+  avgPnl: real("avg_pnl").notNull().default(0),
+  totalPnl: real("total_pnl").notNull().default(0),
+  avgDuration: real("avg_duration").notNull().default(0),
+  confidenceScore: real("confidence_score").notNull().default(0),
+  lastUpdated: timestamp("last_updated").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const symbolPerformance = pgTable("symbol_performance", {
+  id: serial("id").primaryKey(),
+  symbol: varchar("symbol", { length: 20 }).notNull().unique(),
+  totalTrades: integer("total_trades").notNull().default(0),
+  winRate: real("win_rate").notNull().default(0),
+  avgPnl: real("avg_pnl").notNull().default(0),
+  bestStrategy: varchar("best_strategy", { length: 50 }),
+  volatilityScore: real("volatility_score").notNull().default(0),
+  lastUpdated: timestamp("last_updated").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const patternQuality = pgTable("pattern_quality", {
+  id: serial("id").primaryKey(),
+  patternType: varchar("pattern_type", { length: 50 }).notNull(),
+  interval: varchar("interval", { length: 10 }).notNull(),
+  successRate: real("success_rate").notNull().default(0),
+  avgPnl: real("avg_pnl").notNull().default(0),
+  sampleSize: integer("sample_size").notNull().default(0),
+  reliability: real("reliability").notNull().default(0),
+  lastUpdated: timestamp("last_updated").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Insert schemas
 export const insertPatternSchema = createInsertSchema(patterns).omit({ id: true, createdAt: true });
 export const insertSignalSchema = createInsertSchema(signals).omit({ id: true, createdAt: true });
@@ -112,6 +152,9 @@ export const insertTradeSchema = createInsertSchema(trades).omit({ id: true, cre
 export const insertMarketScanSchema = createInsertSchema(marketScans).omit({ id: true, createdAt: true });
 export const insertEmaTrendSchema = createInsertSchema(emaTrends).omit({ id: true, createdAt: true });
 export const insertOrbDataSchema = createInsertSchema(orbData).omit({ id: true, createdAt: true });
+export const insertStrategyPerformanceSchema = createInsertSchema(strategyPerformance).omit({ id: true, createdAt: true, lastUpdated: true });
+export const insertSymbolPerformanceSchema = createInsertSchema(symbolPerformance).omit({ id: true, createdAt: true, lastUpdated: true });
+export const insertPatternQualitySchema = createInsertSchema(patternQuality).omit({ id: true, createdAt: true, lastUpdated: true });
 
 export type IndicatorSignal = 'buy' | 'sell' | 'neutral';
 

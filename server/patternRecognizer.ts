@@ -160,6 +160,11 @@ export class PatternRecognizer {
       return null;
     }
 
+    // PRIORITY 1 & 3: Get EMA trend and RSI for filtering
+    const emaTrends = getEMATrend(currentKlines, EMA_PERIODS);
+    const rsi = this.calculateRSI(currentKlines, 14);
+    const dominantTrend = emaTrends[50]; // Use EMA50 as primary trend indicator
+
     // Klines are in chronological order (oldest first), so newest is at index -1
     const lastCandle = currentKlines[currentKlines.length - 1];
     const prevCandle = currentKlines.length > 1 ? currentKlines[currentKlines.length - 2] : lastCandle;
@@ -177,15 +182,23 @@ export class PatternRecognizer {
       const utlValAtPrev = pattern.upperTrendlineIntercept + pattern.upperTrendlineSlope * prevIdx;
 
       if (lastCandle.close > utlValAtLast && prevCandle.close <= utlValAtPrev) { // Check for crossover
+        // PRIORITY 1 & 3: Filter - Don't long in bearish trend or when RSI < 40
+        if (dominantTrend === "bearish") {
+          console.log(`[FILTER] ✗ Rejecting LONG for ${symbol} ${interval}: Bearish trend (EMA50)`);
+          return null;
+        }
+        if (rsi !== null && rsi < 40) {
+          console.log(`[FILTER] ✗ Rejecting LONG for ${symbol} ${interval}: RSI too low (${rsi.toFixed(1)})`);
+          return null;
+        }
+        console.log(`[FILTER] ✓ LONG approved for ${symbol} ${interval}: Trend=${dominantTrend}, RSI=${rsi?.toFixed(1)}`);
+
         const entryPrice = lastCandle.close;
         // Stop loss below the lower trendline of the wedge or recent significant low within the wedge
         const stopLossPrice = Math.min(...pattern.lowerPivots.map(p => p.price)) * 0.999; // Slightly below recent low
-        // Take profit: Height of the wedge at widest point projected upwards from entry
-        const startIdxPivots = Math.min(...pattern.upperPivots.concat(pattern.lowerPivots).map(p => p.index));
-        const startUtlVal = pattern.upperTrendlineIntercept + pattern.upperTrendlineSlope * startIdxPivots;
-        const startLtlVal = pattern.lowerTrendlineIntercept + pattern.lowerTrendlineSlope * startIdxPivots;
-        const wedgeHeight = startUtlVal - startLtlVal;
-        const takeProfitPrice = entryPrice + wedgeHeight;
+        // PRIORITY 2 FIX: Use 2.5:1 risk/reward ratio instead of wedge height
+        const riskPerUnit = entryPrice - stopLossPrice;
+        const takeProfitPrice = entryPrice + (riskPerUnit * 2.5); // 2.5:1 reward/risk ratio
 
         signal = {
           symbol,
@@ -214,13 +227,22 @@ export class PatternRecognizer {
       const ltlValAtPrev = pattern.lowerTrendlineIntercept + pattern.lowerTrendlineSlope * prevIdx;
 
       if (lastCandle.close < ltlValAtLast && prevCandle.close >= ltlValAtPrev) {
+        // PRIORITY 1 & 3: Filter - Don't short in bullish trend or when RSI > 60
+        if (dominantTrend === "bullish") {
+          console.log(`[FILTER] ✗ Rejecting SHORT for ${symbol} ${interval}: Bullish trend (EMA50)`);
+          return null;
+        }
+        if (rsi !== null && rsi > 60) {
+          console.log(`[FILTER] ✗ Rejecting SHORT for ${symbol} ${interval}: RSI too high (${rsi.toFixed(1)})`);
+          return null;
+        }
+        console.log(`[FILTER] ✓ SHORT approved for ${symbol} ${interval}: Trend=${dominantTrend}, RSI=${rsi?.toFixed(1)}`);
+
         const entryPrice = lastCandle.close;
         const stopLossPrice = Math.max(...pattern.upperPivots.map(p => p.price)) * 1.001;
-        const startIdxPivots = Math.min(...pattern.upperPivots.concat(pattern.lowerPivots).map(p => p.index));
-        const startUtlVal = pattern.upperTrendlineIntercept + pattern.upperTrendlineSlope * startIdxPivots;
-        const startLtlVal = pattern.lowerTrendlineIntercept + pattern.lowerTrendlineSlope * startIdxPivots;
-        const wedgeHeight = startUtlVal - startLtlVal;
-        const takeProfitPrice = entryPrice - wedgeHeight;
+        // PRIORITY 2 FIX: Use 2.5:1 risk/reward ratio instead of wedge height
+        const riskPerUnit = stopLossPrice - entryPrice;
+        const takeProfitPrice = entryPrice - (riskPerUnit * 2.5); // 2.5:1 reward/risk ratio
 
         signal = {
           symbol,
@@ -545,6 +567,33 @@ export class PatternRecognizer {
     return trueRanges.reduce((sum, tr) => sum + tr, 0) / trueRanges.length;
   }
 
+  private calculateRSI(klines: Kline[], period: number = 14): number | null {
+    if (klines.length < period + 1) {
+      return null;
+    }
+
+    const changes: number[] = [];
+    for (let i = 1; i < klines.length; i++) {
+      changes.push(klines[i].close - klines[i - 1].close);
+    }
+
+    const recentChanges = changes.slice(-period);
+    const gains = recentChanges.filter(c => c > 0);
+    const losses = recentChanges.filter(c => c < 0).map(c => Math.abs(c));
+
+    const avgGain = gains.length > 0 ? gains.reduce((a, b) => a + b, 0) / period : 0;
+    const avgLoss = losses.length > 0 ? losses.reduce((a, b) => a + b, 0) / period : 0;
+
+    if (avgLoss === 0) {
+      return 100;
+    }
+
+    const rs = avgGain / avgLoss;
+    const rsi = 100 - (100 / (1 + rs));
+
+    return rsi;
+  }
+
   async scanAndGenerateSignals(currentTimeUtc: Date): Promise<TradeSignal[]> {
     const generatedSignals: TradeSignal[] = [];
     const swingIntervals = ["15m", "1h"];
@@ -572,27 +621,30 @@ export class PatternRecognizer {
               console.info(`[KEWLTECH] Potential Pattern Detected: ${detectedPattern.patternType} for ${symbol} ${interval}`);
               console.info(`  EMA Trends: ${Object.entries(emaTrends).map(([k, v]) => `EMA${k}:${v}`).join(', ')}`);
 
+              // Create signal from pattern detection for dashboard visibility
+              const patternSignal: TradeSignal = {
+                symbol,
+                strategy: detectedPattern.patternType,
+                tradeType: detectedPattern.patternType.includes('Bullish') ? 'long' : 'short',
+                interval,
+                entryPrice: klinesForDetection[klinesForDetection.length - 1].close,
+                stopLossPrice: detectedPattern.patternType.includes('Bullish') 
+                  ? klinesForDetection[klinesForDetection.length - 1].close * 0.95 // 5% below for bullish
+                  : klinesForDetection[klinesForDetection.length - 1].close * 1.05, // 5% above for bearish
+                takeProfitPrice: detectedPattern.patternType.includes('Bullish')
+                  ? klinesForDetection[klinesForDetection.length - 1].close * 1.03 // 3% above for bullish
+                  : klinesForDetection[klinesForDetection.length - 1].close * 0.97, // 3% below for bearish
+                signalTime: new Date(),
+                patternDetails: detectedPattern
+              };
+              
+              // Always add signal to generated signals for dashboard display
+              generatedSignals.push(patternSignal);
+              
               // Auto trade on pattern detection
               if (AUTO_TRADE_ON_PATTERN_DETECTION && this.tradingBot && this.tradingBot.activeTrades.length < MAX_CONCURRENT_TRADES) {
                 console.log(`[AUTO TRADE] Executing on pattern formation for ${symbol} ${interval}`);
-                // Create synthetic signal from pattern
-                const syntheticSignal: TradeSignal = {
-                  symbol,
-                  strategy: detectedPattern.patternType,
-                  tradeType: detectedPattern.patternType.includes('Bullish') ? 'long' : 'short',
-                  interval,
-                  entryPrice: klinesForDetection[klinesForDetection.length - 1].close, // Use current close as entry
-                  stopLossPrice: detectedPattern.patternType.includes('Bullish') 
-                    ? klinesForDetection[klinesForDetection.length - 1].close * 0.95 // 5% below for bullish
-                    : klinesForDetection[klinesForDetection.length - 1].close * 1.05, // 5% above for bearish
-                  takeProfitPrice: detectedPattern.patternType.includes('Bullish')
-                    ? klinesForDetection[klinesForDetection.length - 1].close * 1.03 // 3% above for bullish
-                    : klinesForDetection[klinesForDetection.length - 1].close * 0.97, // 3% below for bearish
-                  signalTime: new Date(),
-                  patternDetails: detectedPattern
-                };
-                // Process the synthetic signal
-                await this.tradingBot.processSignals([syntheticSignal]);
+                await this.tradingBot.processSignals([patternSignal]);
               }
             }
           }
@@ -608,13 +660,15 @@ export class PatternRecognizer {
                 this.tradingBot.sendPatternToApi(symbol, interval, this.activePatterns.get(patternKey)!.patternType, false);
               }
 
+              // Always add breakout signal to generated signals for dashboard display
+              generatedSignals.push(breakoutSignal);
+
               // Auto trade on breakout
               if (AUTO_TRADE_ON_BREAKOUT && this.tradingBot && this.tradingBot.activeTrades.length < MAX_CONCURRENT_TRADES) {
                 console.log(`[AUTO TRADE] Executing on breakout for ${symbol} ${interval}`);
                 await this.tradingBot.processSignals([breakoutSignal]);
               }
 
-              generatedSignals.push(breakoutSignal);
               this.activePatterns.delete(patternKey);
               console.info(`Breakout signal generated and pattern ${patternKey} removed.`);
             }

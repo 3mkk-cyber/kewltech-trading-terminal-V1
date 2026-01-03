@@ -6,7 +6,7 @@
 
 import axios from 'axios';
 import { WoofiProAPIClient } from './woofiApiClient';
-import { PatternRecognizer } from './patternRecognizer';
+import { EnhancedPatternRecognizer } from './patternRecognizer.enhanced';
 import { RiskManager } from './riskManager';
 import { learningEngine } from './learningEngine';
 import { botSignalsManager, OpenTrade } from './botSignals';
@@ -36,7 +36,7 @@ import { getEMATrend } from './utils';
 
 export class TradingBot {
   private apiClient: WoofiProAPIClient;
-  private patternRecognizer: PatternRecognizer;
+  private patternRecognizer: EnhancedPatternRecognizer;
   private riskManager: RiskManager;
   private activeTrades: ActiveTrade[];
   private closedTrades: ActiveTrade[];
@@ -44,7 +44,7 @@ export class TradingBot {
 
   constructor() {
     this.apiClient = new WoofiProAPIClient();
-    this.patternRecognizer = new PatternRecognizer(this.apiClient);
+    this.patternRecognizer = new EnhancedPatternRecognizer(this.apiClient);
     this.patternRecognizer.setTradingBot(this);
     this.riskManager = new RiskManager(ACCOUNT_EQUITY_USD, RISK_PERCENTAGE_PER_TRADE);
     this.activeTrades = [];
@@ -112,6 +112,9 @@ export class TradingBot {
         console.log(`  ${sym.padEnd(15)}: ${trends}`);
       }
     }
+
+    // Check and exit active trades first
+    await this.checkActiveTradesForExit();
 
     const tradeSignals = await this.patternRecognizer.scanAndGenerateSignals(cycleStartTime);
     await this.processSignals(tradeSignals);
@@ -312,36 +315,15 @@ export class TradingBot {
           continue;
         }
 
-        // Detect 5-minute patterns with improved logic
-        const pattern = this.patternRecognizer['detect5mPattern'](symbol, klines5m);
-        if (!pattern) {
-          continue;
-        }
-
-        // Check pattern quality and age
-        const patternAge = (Date.now() - pattern.detectionTime.getTime()) / (1000 * 60 * 5); // Age in 5m candles
-        if (patternAge < MIN_PATTERN_AGE_5M) {
-          console.debug(`[5M] Pattern too new for ${symbol} (${patternAge.toFixed(1)} candles old)`);
-          continue;
-        }
-
-        // Calculate signal confidence
-        const confidence = this.calculate5mSignalConfidence(pattern, klines5m);
-        if (confidence < MIN_SIGNAL_CONFIDENCE_5M) {
-          console.debug(`[5M] Low confidence signal for ${symbol} (${confidence.toFixed(2)})`);
-          continue;
-        }
-
-        // Check for breakout with improved logic
-        const breakoutSignal = this.patternRecognizer['check5mBreakout'](symbol, pattern, klines5m);
-        if (breakoutSignal) {
-          // Apply conservative risk management
-          const riskManagedSignal = this.apply5mRiskManagement(breakoutSignal, klines5m, confidence);
-          if (riskManagedSignal) {
-            signals.push(riskManagedSignal);
-            console.log(`[5M] Conservative signal generated for ${symbol} (${pattern.patternType}) confidence: ${confidence.toFixed(2)}`);
-          }
-        }
+        // NOTE: 5m aggressive pattern detection disabled - EnhancedPatternRecognizer uses comprehensive
+        // multi-timeframe analysis. The 5m-specific methods are in the legacy patternRecognizer.ts
+        // For now, 5m aggressive mode is temporarily disabled to use the enhanced pattern detection system.
+        console.debug(`[5M] Aggressive 5m mode temporarily disabled - using enhanced pattern system instead`);
+        continue;
+        
+        // TODO: Re-enable 5m aggressive mode by either:
+        // 1. Adding 5m-specific methods to EnhancedPatternRecognizer, OR
+        // 2. Using a hybrid approach with both recognizers
       } catch (error) {
         console.error(`[5M] Error scanning ${symbol}:`, error);
       }
