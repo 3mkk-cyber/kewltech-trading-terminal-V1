@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { TrendingUp } from "lucide-react";
+import { TrendingUp, Activity, Target, DollarSign, Clock, BarChart3 } from "lucide-react";
 
 interface OpenTrade {
   id: string;
@@ -19,30 +19,51 @@ interface OpenTrade {
   isAggressive: boolean; // 5m trade?
 }
 
+interface TradingStats {
+  totalTrades: number;
+  winningTrades: number;
+  losingTrades: number;
+  winRate: number;
+  totalPnL: number;
+  avgWin: number;
+  avgLoss: number;
+  todayTrades: number;
+  todayPnL: number;
+}
+
 export function OpenTradesPanel() {
   const [trades, setTrades] = useState<OpenTrade[]>([]);
+  const [stats, setStats] = useState<TradingStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchTrades = async () => {
+    const fetchData = async () => {
       try {
-        const response = await fetch("/api/bot/open-trades");
-        const result = await response.json();
-        if (result.success) {
-          setTrades(result.data);
+        // Fetch open trades
+        const tradesResponse = await fetch("/api/bot/open-trades");
+        const tradesResult = await tradesResponse.json();
+        if (tradesResult.success) {
+          setTrades(tradesResult.data);
+        }
+
+        // Fetch trading statistics
+        const statsResponse = await fetch("/api/bot/statistics");
+        const statsResult = await statsResponse.json();
+        if (statsResult.success) {
+          setStats(statsResult.data);
         }
       } catch (error) {
-        console.error("Error fetching open trades:", error);
+        console.error("Error fetching trading data:", error);
       } finally {
         setLoading(false);
       }
     };
 
     // Initial fetch
-    fetchTrades();
+    fetchData();
 
     // Poll for updates every 2 seconds for real-time updates
-    const interval = setInterval(fetchTrades, 2000);
+    const interval = setInterval(fetchData, 2000);
 
     return () => clearInterval(interval);
   }, []);
@@ -81,96 +102,168 @@ export function OpenTradesPanel() {
   const totalUnrealizedPnL = trades.reduce((sum, t) => sum + t.unrealizedPnlUsd, 0);
 
   return (
-    <Card className="w-full bg-background/50 border-border/50">
-      <CardHeader className="pb-3">
+    <div className="w-full">
+      <div className="p-3 border-b border-border/50">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-yellow-500" />
-            <CardTitle>Open Trades</CardTitle>
+            <Activity className="w-4 h-4 text-yellow-500" />
+            <h3 className="text-xs font-semibold">PERFORMANCE</h3>
           </div>
-          {trades.length > 0 && (
-            <div className="text-sm font-medium text-muted-foreground">
-              {trades.length} position{trades.length !== 1 ? "s" : ""}
+          {stats && (
+            <div className="text-[10px] font-medium text-muted-foreground">
+              {stats.todayTrades} trades today
             </div>
           )}
         </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Summary Statistics */}
-        {trades.length > 0 && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-card/50 rounded-lg border border-border/30">
-            <div>
-              <div className="text-xs text-muted-foreground uppercase tracking-wide">
-                Open Positions
+      </div>
+      <div className="p-3 space-y-3 max-h-[600px] overflow-y-auto">
+        {/* Performance Metrics Dashboard */}
+        {stats && (
+          <div className="space-y-3">
+            {/* Overall Performance Metrics */}
+            <div className="grid grid-cols-2 gap-2 p-3 bg-gradient-to-br from-blue-500/10 to-purple-500/10 rounded border border-border/30">
+              <div className="flex items-center gap-2">
+                <Target className="w-7 h-7 text-green-500" />
+                <div>
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                    Win Rate
+                  </div>
+                  <div className="text-xl font-bold text-foreground">
+                    {stats.winRate.toFixed(1)}%
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">
+                    {stats.winningTrades}W / {stats.losingTrades}L
+                  </div>
+                </div>
               </div>
-              <div className="text-2xl font-bold text-foreground">
-                {trades.length}
+              <div className="flex items-center gap-2">
+                <DollarSign className="w-7 h-7 text-yellow-500" />
+                <div>
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                    Total P&L
+                  </div>
+                  <div
+                    className={`text-xl font-bold ${
+                      stats.totalPnL >= 0 ? "text-green-600" : "text-red-600"
+                    }`}
+                  >
+                    {stats.totalPnL >= 0 ? "+" : ""}
+                    {formatPnl(stats.totalPnL)}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">
+                    {stats.totalTrades} trades
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <BarChart3 className="w-7 h-7 text-blue-500" />
+                <div>
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                    Avg Win/Loss
+                  </div>
+                  <div className="text-base font-bold text-green-600">
+                    +{formatPnl(stats.avgWin)}
+                  </div>
+                  <div className="text-base font-bold text-red-600">
+                    {formatPnl(stats.avgLoss)}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Clock className="w-7 h-7 text-purple-500" />
+                <div>
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                    Today
+                  </div>
+                  <div
+                    className={`text-xl font-bold ${
+                      stats.todayPnL >= 0 ? "text-green-600" : "text-red-600"
+                    }`}
+                  >
+                    {stats.todayPnL >= 0 ? "+" : ""}
+                    {formatPnl(stats.todayPnL)}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">
+                    {stats.todayTrades} trades
+                  </div>
+                </div>
               </div>
             </div>
-            <div>
-              <div className="text-xs text-muted-foreground uppercase tracking-wide">
-                Unrealized P&L
+
+            {/* Current Open Positions Summary */}
+            {trades.length > 0 && (
+              <div className="grid grid-cols-4 gap-2 p-2 bg-card/50 rounded border border-border/30">
+                <div>
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                    Open
+                  </div>
+                  <div className="text-xl font-bold text-foreground">
+                    {trades.length}/5
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                    Unreal. P&L
+                  </div>
+                  <div
+                    className={`text-xl font-bold ${
+                      totalUnrealizedPnL >= 0 ? "text-green-600" : "text-red-600"
+                    }`}
+                  >
+                    {totalUnrealizedPnL >= 0 ? "+" : ""}
+                    {formatPnl(totalUnrealizedPnL)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                    5m Agg
+                  </div>
+                  <div className="text-xl font-bold text-blue-500">
+                    {trades.filter((t) => t.isAggressive).length}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                    Standard
+                  </div>
+                  <div className="text-xl font-bold text-purple-500">
+                    {trades.filter((t) => !t.isAggressive).length}
+                  </div>
+                </div>
               </div>
-              <div
-                className={`text-2xl font-bold ${
-                  totalUnrealizedPnL >= 0 ? "text-green-600" : "text-red-600"
-                }`}
-              >
-                {totalUnrealizedPnL >= 0 ? "+" : ""}
-                {formatPnl(totalUnrealizedPnL)}
-              </div>
-            </div>
-            <div>
-              <div className="text-xs text-muted-foreground uppercase tracking-wide">
-                5m Trades
-              </div>
-              <div className="text-2xl font-bold text-blue-500">
-                {trades.filter((t) => t.isAggressive).length}
-              </div>
-            </div>
-            <div>
-              <div className="text-xs text-muted-foreground uppercase tracking-wide">
-                Standard Trades
-              </div>
-              <div className="text-2xl font-bold text-purple-500">
-                {trades.filter((t) => !t.isAggressive).length}
-              </div>
-            </div>
+            )}
           </div>
         )}
 
         {/* Trades Table */}
         {trades.length > 0 ? (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-border/50 bg-card/30">
-                  <th className="text-left px-3 py-2 font-semibold text-foreground">
+                  <th className="text-left px-2 py-1.5 font-semibold text-foreground text-[10px]">
                     Symbol
                   </th>
-                  <th className="text-center px-3 py-2 font-semibold text-foreground">
-                    Direction
+                  <th className="text-center px-2 py-1.5 font-semibold text-foreground text-[9px]">
+                    Dir
                   </th>
-                  <th className="text-right px-3 py-2 font-semibold text-foreground">
+                  <th className="text-right px-2 py-1.5 font-semibold text-foreground text-[9px]">
                     Entry
                   </th>
-                  <th className="text-right px-3 py-2 font-semibold text-foreground">
+                  <th className="text-right px-2 py-1.5 font-semibold text-foreground text-[9px]">
                     Current
                   </th>
-                  <th className="text-right px-3 py-2 font-semibold text-foreground">
+                  <th className="text-right px-2 py-1.5 font-semibold text-foreground text-[9px]">
                     P&L
                   </th>
-                  <th className="text-right px-3 py-2 font-semibold text-foreground">
-                    Size
-                  </th>
-                  <th className="text-center px-3 py-2 font-semibold text-foreground">
+                  <th className="text-center px-2 py-1.5 font-semibold text-foreground text-[9px]">
                     Type
                   </th>
-                  <th className="text-right px-3 py-2 font-semibold text-foreground">
-                    SL / TP
+                  <th className="text-right px-2 py-1.5 font-semibold text-foreground text-[9px]">
+                    SL/TP
                   </th>
-                  <th className="text-left px-3 py-2 font-semibold text-foreground">
-                    Duration
+                  <th className="text-right px-2 py-1.5 font-semibold text-foreground text-[9px]">
+                    Time
                   </th>
                 </tr>
               </thead>
@@ -189,58 +282,56 @@ export function OpenTradesPanel() {
                         isPositive ? "bg-green-500/5" : "bg-red-500/5"
                       }`}
                     >
-                      <td className="px-3 py-2 font-semibold text-foreground">
-                        {trade.symbol}
+                      <td className="px-2 py-1.5 font-semibold text-foreground">
+                        {trade.symbol.replace('SPOT_', '').replace('_USDT', '')}
                       </td>
-                      <td className="text-center px-3 py-2">
+                      <td className="text-center px-2 py-1.5">
                         <Badge
                           variant="outline"
-                          className={trade.tradeType === "long" 
+                          className={`text-[8px] px-1 py-0 h-4 ${trade.tradeType === "long" 
                             ? "bg-green-500/20 text-green-300 border-green-500/30 font-semibold"
                             : "bg-red-500/20 text-red-300 border-red-500/30 font-semibold"
-                          }
+                          }`}
                         >
-                          {trade.tradeType.toUpperCase()}
+                          {trade.tradeType === "long" ? "↑" : "↓"}
                         </Badge>
                       </td>
-                      <td className="text-right px-3 py-2 text-foreground">
+                      <td className="text-right px-2 py-1.5 text-foreground font-mono">
                         ${trade.entryPrice.toFixed(2)}
                       </td>
-                      <td className="text-right px-3 py-2 text-foreground">
+                      <td className="text-right px-2 py-1.5 text-foreground font-mono font-semibold">
                         ${trade.currentPrice.toFixed(2)}
                       </td>
                       <td
-                        className={`text-right px-3 py-2 font-semibold ${
+                        className={`text-right px-2 py-1.5 font-semibold font-mono ${
                           isPositive ? "text-green-600" : "text-red-600"
                         }`}
                       >
                         {isPositive ? "+" : ""}
-                        {formatPnl(trade.unrealizedPnlUsd)} ({changePercent.toFixed(2)}%)
+                        {formatPnl(trade.unrealizedPnlUsd)}
+                        <div className="text-[8px]">({changePercent.toFixed(2)}%)</div>
                       </td>
-                      <td className="text-right px-3 py-2 text-foreground">
-                        {trade.positionSize.toFixed(4)}
-                      </td>
-                      <td className="text-center px-3 py-2">
+                      <td className="text-center px-2 py-1.5">
                         <Badge
                           variant={
                             trade.isAggressive ? "secondary" : "outline"
                           }
-                          className={
+                          className={`text-[8px] px-1 py-0 h-4 ${
                             trade.isAggressive
                               ? "bg-blue-500/20 text-blue-300 border-blue-500/30"
                               : "bg-purple-500/20 text-purple-300 border-purple-500/30"
-                          }
+                          }`}
                         >
                           {trade.isAggressive ? "5m" : "STD"}
                         </Badge>
                       </td>
-                      <td className="text-right px-3 py-2 text-xs text-muted-foreground">
-                        <div>${trade.stopLossPrice.toFixed(2)}</div>
-                        <div className="text-green-600">
+                      <td className="text-right px-2 py-1.5 text-[10px] text-muted-foreground font-mono">
+                        <div className="text-red-400">${trade.stopLossPrice.toFixed(2)}</div>
+                        <div className="text-green-400">
                           ${trade.takeProfitPrice.toFixed(2)}
                         </div>
                       </td>
-                      <td className="text-left px-3 py-2 text-xs text-muted-foreground">
+                      <td className="text-right px-2 py-1.5 text-[10px] text-muted-foreground">
                         {formatDuration(trade.duration)}
                       </td>
                     </tr>
@@ -250,14 +341,14 @@ export function OpenTradesPanel() {
             </table>
           </div>
         ) : (
-          <div className="text-center py-8">
-            <p className="text-muted-foreground">No open trades</p>
-            <p className="text-sm text-muted-foreground/70">
-              Active positions will appear here in real-time
+          <div className="text-center py-6">
+            <p className="text-xs text-muted-foreground">No open trades</p>
+            <p className="text-[10px] text-muted-foreground/70">
+              Positions will appear here
             </p>
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

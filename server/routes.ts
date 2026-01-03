@@ -462,10 +462,24 @@ export async function registerRoutes(
   app.get("/api/bot/signals", async (req, res) => {
     try {
       const symbol = req.query.symbol as string | undefined;
-      const signals = symbol
+      const allSignals = symbol
         ? await botSignalsManager.getSignalsBySymbol(symbol.toUpperCase())
         : await botSignalsManager.getSignals();
-      res.json({ success: true, data: signals });
+      
+      // Filter to show only high-quality recent signals
+      const twoHoursAgo = Date.now() - (2 * 60 * 60 * 1000);
+      const filteredSignals = allSignals
+        .filter(signal => {
+          // Only show signals with high confidence (85%+)
+          if (signal.confidence && signal.confidence < 85) return false;
+          // Only show signals from last 2 hours
+          if (signal.signalTime < twoHoursAgo) return false;
+          return true;
+        })
+        .sort((a, b) => b.signalTime - a.signalTime) // Most recent first
+        .slice(0, 20); // Limit to 20 best signals
+      
+      res.json({ success: true, data: filteredSignals });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
     }
@@ -591,6 +605,7 @@ export async function registerRoutes(
     try {
       const symbol = req.query.symbol as string | undefined;
       
+      // First try to get from botSignalsManager (in-memory)
       let trades;
       if (symbol) {
         trades = await botSignalsManager.getOpenTradesBySymbol(symbol);
@@ -598,8 +613,39 @@ export async function registerRoutes(
         trades = await botSignalsManager.getOpenTrades();
       }
       
+      // If empty, fetch from database
+      if (!trades || trades.length === 0) {
+        const { db: database } = await import('./db');
+        const { trades: tradesTable } = await import('@shared/schema');
+        const { eq, and } = await import('drizzle-orm');
+        
+        const dbTrades = symbol
+          ? await database.select().from(tradesTable).where(and(eq(tradesTable.status, 'open'), eq(tradesTable.symbol, symbol)))
+          : await database.select().from(tradesTable).where(eq(tradesTable.status, 'open'));
+        
+        // Transform database trades to OpenTrade format
+        trades = dbTrades.map((t: any) => ({
+          id: t.id.toString(),
+          symbol: t.symbol,
+          tradeType: t.tradeType || 'long',
+          entryPrice: t.entryPrice,
+          currentPrice: t.entryPrice, // We'll need to fetch real-time price separately
+          stopLossPrice: t.stopLossPrice,
+          takeProfitPrice: t.takeProfitPrice,
+          positionSize: t.positionSize || 0,
+          riskAmountUsd: t.riskAmountUsd || 0,
+          unrealizedPnL: 0, // Calculate based on current price
+          unrealizedPnLPercent: 0,
+          entryTime: new Date(t.entryTime).getTime(),
+          duration: Date.now() - new Date(t.entryTime).getTime(),
+          strategy: 'Database Trade',
+          interval: t.isAggressive ? '5m' : '15m'
+        }));
+      }
+      
       res.json({ success: true, data: trades });
     } catch (error: any) {
+      console.error('[ERROR] Failed to fetch open trades:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   });
@@ -614,6 +660,106 @@ export async function registerRoutes(
         summary: learningEngine.getPerformanceSummary()
       });
     } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // Trade history endpoint for closed trades
+  app.get("/api/bot/trade-history", async (req, res) => {
+    try {
+      const { db: database } = await import('./db');
+      const { trades: tradesTable } = await import('@shared/schema');
+      const { eq, desc } = await import('drizzle-orm');
+      
+      const limit = parseInt(req.query.limit as string) || 50;
+      
+      // Get closed trades ordered by exit time (most recent first)
+      const closedTrades = await database
+        .select()
+        .from(tradesTable)
+        .where(eq(tradesTable.status, 'closed'))
+        .orderBy(desc(tradesTable.exitTime))
+        .limit(limit);
+      
+      // Transform to client format
+      const formattedTrades = closedTrades.map((t: any) => ({
+        id: t.id.toString(),
+        symbol: t.symbol,
+        tradeType: t.tradeType || 'long',
+        entryPrice: t.entryPrice,
+        exitPrice: t.exitPrice,
+        stopLossPrice: t.stopLossPrice,
+        takeProfitPrice: t.takeProfitPrice,
+        positionSize: t.positionSize || 0,
+        riskAmountUsd: t.riskAmountUsd || 0,
+        pnlUsd: t.netPnlUsd || t.pnlPercent || 0,
+        entryTime: new Date(t.entryTime).getTime(),
+        exitTime: t.exitTime ? new Date(t.exitTime).getTime() : null,
+        exitReason: t.exitReason,
+        duration: t.exitTime ? new Date(t.exitTime).getTime() - new Date(t.entryTime).getTime() : 0,
+        strategy: t.strategy || 'Unknown',
+        interval: t.isAggressive ? '5m' : '15m',
+        isWinner: (t.netPnlUsd || t.pnlPercent || 0) > 0
+      }));
+      
+      res.json({ success: true, data: formattedTrades });
+    } catch (error: any) {
+      console.error('[ERROR] Failed to fetch trade history:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // Trading statistics endpoint for dashboard
+  app.get("/api/bot/statistics", async (req, res) => {
+    try {
+      const { db: database } = await import('./db');
+      const { trades: tradesTable } = await import('@shared/schema');
+      const { gte, eq, and, sql } = await import('drizzle-orm');
+      
+      // Get all closed trades
+      const allTrades = await database
+        .select()
+        .from(tradesTable)
+        .where(eq(tradesTable.status, 'closed'));
+
+      // Get today's trades
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayTimestamp = new Date(today.getTime());
+      
+      const todayTrades = await database
+        .select()
+        .from(tradesTable)
+        .where(gte(tradesTable.entryTime, todayTimestamp));
+
+      // Calculate statistics
+      const winningTrades = allTrades.filter((t: any) => (t.netPnlUsd || t.pnlPercent || 0) > 0);
+      const losingTrades = allTrades.filter((t: any) => (t.netPnlUsd || t.pnlPercent || 0) < 0);
+      const totalPnL = allTrades.reduce((sum: number, t: any) => sum + (t.netPnlUsd || t.pnlPercent || 0), 0);
+      const todayPnL = todayTrades.reduce((sum: number, t: any) => sum + (t.netPnlUsd || t.pnlPercent || 0), 0);
+      
+      const avgWin = winningTrades.length > 0 
+        ? winningTrades.reduce((sum: number, t: any) => sum + (t.netPnlUsd || t.pnlPercent || 0), 0) / winningTrades.length 
+        : 0;
+      const avgLoss = losingTrades.length > 0 
+        ? losingTrades.reduce((sum: number, t: any) => sum + (t.netPnlUsd || t.pnlPercent || 0), 0) / losingTrades.length 
+        : 0;
+
+      const stats = {
+        totalTrades: allTrades.length,
+        winningTrades: winningTrades.length,
+        losingTrades: losingTrades.length,
+        winRate: allTrades.length > 0 ? (winningTrades.length / allTrades.length) * 100 : 0,
+        totalPnL: parseFloat(totalPnL.toFixed(2)),
+        avgWin: parseFloat(avgWin.toFixed(2)),
+        avgLoss: parseFloat(avgLoss.toFixed(2)),
+        todayTrades: todayTrades.length,
+        todayPnL: parseFloat(todayPnL.toFixed(2))
+      };
+
+      res.json({ success: true, data: stats });
+    } catch (error: any) {
+      console.error('[ERROR] Failed to fetch statistics:', error);
       res.status(500).json({ success: false, message: error.message });
     }
   });

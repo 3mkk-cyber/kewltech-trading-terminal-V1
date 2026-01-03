@@ -39,6 +39,8 @@ export const AUTO_TRADE_ON_PATTERN_DETECTION = true; // Automatically execute tr
 export const AUTO_TRADE_ON_BREAKOUT = true; // Automatically execute on pattern breakout
 export const AGGRESSIVE_MODE = true; // Trade more patterns with relaxed thresholds
 export const MAX_CONCURRENT_TRADES = 5; // Maximum number of simultaneous open positions
+export const MAX_DAILY_TRADES = 20; // Maximum trades per day (quality over quantity)
+export const MIN_MINUTES_BETWEEN_TRADES = 15; // Minimum 15 minutes between trades to avoid over-trading
 
 // --- 5-Minute Conservative Trading Configuration (BTC & ETH Only) ---
 export const AGGRESSIVE_5M_SYMBOLS = ['SPOT_BTC_USDT', 'SPOT_ETH_USDT']; // Trade 5-minute candles for these symbols

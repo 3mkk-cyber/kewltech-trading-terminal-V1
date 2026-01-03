@@ -559,13 +559,15 @@ export class EnhancedPatternRecognizer {
     // Calculate pattern confidence
     const confidence = this.calculatePatternConfidence(pattern, indicators, srLevels);
     
-    // Require minimum confidence score
-    if (confidence.score < 60) {
+    // Require minimum confidence score (Option C: Lowered from 60 to 40 for bootstrap phase)
+    if (confidence.score < 40) {
       console.log(`[FILTER] ✗ Pattern ${pattern.patternType} for ${pattern.symbol} rejected: Low confidence (${confidence.score})`);
       return null;
     }
 
-    // Trend Filter
+    // Trend Filter (Option C: DISABLED during bootstrap phase to allow counter-trend patterns)
+    // Counter-trend patterns can be highly profitable, especially at extremes
+    /*
     if (isBullish && indicators.emaTrends[50] === 'bearish') {
       console.log(`[FILTER] ✗ Rejecting LONG ${pattern.patternType} for ${pattern.symbol}: Bearish trend`);
       return null;
@@ -574,14 +576,15 @@ export class EnhancedPatternRecognizer {
       console.log(`[FILTER] ✗ Rejecting SHORT ${pattern.patternType} for ${pattern.symbol}: Bullish trend`);
       return null;
     }
+    */
 
-    // RSI Filter
+    // RSI Filter (Option C: Relaxed from 70 to 85 for shorts, allows trading in overbought conditions)
     if (indicators.rsi) {
       if (isBullish && indicators.rsi < 30) {
         console.log(`[FILTER] ✗ Rejecting LONG: RSI too low (${indicators.rsi.toFixed(1)})`);
         return null;
       }
-      if (!isBullish && indicators.rsi > 70) {
+      if (!isBullish && indicators.rsi > 85) {
         console.log(`[FILTER] ✗ Rejecting SHORT: RSI too high (${indicators.rsi.toFixed(1)})`);
         return null;
       }

@@ -10,6 +10,9 @@ import { EnhancedPatternRecognizer } from './patternRecognizer.enhanced';
 import { RiskManager } from './riskManager';
 import { learningEngine } from './learningEngine';
 import { botSignalsManager, OpenTrade } from './botSignals';
+import { db } from './db';
+import { trades } from '@shared/schema';
+import { gte, sql } from 'drizzle-orm';
 import { Pattern, TradeSignal, ActiveTrade, Kline } from './dataModels';
 import {
   ACCOUNT_EQUITY_USD,
@@ -17,6 +20,8 @@ import {
   MONITORED_SYMBOLS,
   SCAN_INTERVAL_SECONDS,
   MAX_CONCURRENT_TRADES,
+  MAX_DAILY_TRADES,
+  MIN_MINUTES_BETWEEN_TRADES,
   AUTO_TRADE_ON_PATTERN_DETECTION,
   AUTO_TRADE_ON_BREAKOUT,
   AGGRESSIVE_MODE,
@@ -41,6 +46,7 @@ export class TradingBot {
   private activeTrades: ActiveTrade[];
   private closedTrades: ActiveTrade[];
   private webApiUrl: string;
+  private lastTradeExecutionTime: number = 0; // Track last trade time for cooldown
 
   constructor() {
     this.apiClient = new WoofiProAPIClient();
@@ -542,6 +548,54 @@ export class TradingBot {
     }
   }
 
+  /**
+   * Count the number of trades opened today
+   */
+  private async getTodayTradeCount(): Promise<number> {
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayTimestamp = today.getTime();
+      
+      const result = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(trades)
+        .where(gte(trades.entryTime, new Date(todayTimestamp)))
+        .then(rows => rows[0]);
+      
+      return result?.count || 0;
+    } catch (error) {
+      console.error('[ERROR] Failed to count today\'s trades:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Check if we can execute a new trade without exceeding daily limit
+   */
+  private async canExecuteNewTrade(): Promise<{ allowed: boolean; reason?: string }> {
+    const todayCount = await this.getTodayTradeCount();
+    
+    // Log warnings when approaching limit
+    if (todayCount >= 900 && todayCount < 950) {
+      console.log(`\x1b[93m[LIMIT WARNING] Approaching daily limit: ${todayCount}/${MAX_DAILY_TRADES} trades today\x1b[0m`);
+    } else if (todayCount >= 950 && todayCount < 990) {
+      console.log(`\x1b[93m[LIMIT WARNING] Near daily limit: ${todayCount}/${MAX_DAILY_TRADES} trades today\x1b[0m`);
+    } else if (todayCount >= 990 && todayCount < MAX_DAILY_TRADES) {
+      console.log(`\x1b[91m[LIMIT CRITICAL] Very close to daily limit: ${todayCount}/${MAX_DAILY_TRADES} trades today\x1b[0m`);
+    }
+    
+    // Check if limit reached
+    if (todayCount >= MAX_DAILY_TRADES) {
+      return {
+        allowed: false,
+        reason: `Daily trade limit reached: ${todayCount}/${MAX_DAILY_TRADES} (Quality over quantity)`
+      };
+    }
+    
+    return { allowed: true };
+  }
+
   private async processSignals(signals: TradeSignal[]): Promise<void> {
     console.log(`\n[AI] Evaluating ${signals.length} signals with learning engine...`);
     
@@ -573,7 +627,7 @@ export class TradingBot {
       console.log(`     Quality Score: ${qualityFactors.overallScore.toFixed(1)}/100`);
       console.log(`     Strategy: ${qualityFactors.strategyScore.toFixed(0)} | Symbol: ${qualityFactors.symbolScore.toFixed(0)} | Pattern: ${qualityFactors.patternScore.toFixed(0)}`);
       
-      // Only accept signals with quality score above threshold
+      // Only accept signals with quality score above threshold (Set to 45 for balanced testing)
       if (qualityFactors.overallScore >= 45) {
         filteredSignals.push(signal);
         console.log(`[AI] ✓ Signal accepted (score: ${qualityFactors.overallScore.toFixed(1)})`);
@@ -609,6 +663,39 @@ export class TradingBot {
         // Send signal to web API for browser display
         await this.sendSignalToApi(signal, finalizedSignal);
 
+        // Check per-symbol position limits (max 3 total, max 2 per direction)
+        const symbolTrades = this.activeTrades.filter(t => t.signal.symbol === signal.symbol);
+        const sameDirectionTrades = symbolTrades.filter(t => t.signal.tradeType === signal.tradeType);
+        
+        if (symbolTrades.length >= 3) {
+          console.log(`\x1b[93m[POSITION LIMIT] ${signal.symbol} already has 3 open trades (limit reached)\x1b[0m`);
+          console.log(`             Existing: ${symbolTrades.map(t => `${t.signal.tradeType.toUpperCase()}`).join(', ')}`);
+          continue;
+        }
+        
+        if (sameDirectionTrades.length >= 2) {
+          console.log(`\x1b[93m[POSITION LIMIT] ${signal.symbol} already has 2 ${signal.tradeType.toUpperCase()} trades (direction limit)\x1b[0m`);
+          console.log(`             Existing: ${sameDirectionTrades.length} trades`);
+          continue;
+        }
+
+        // Check cooldown period between trades
+        const timeSinceLastTrade = (Date.now() - this.lastTradeExecutionTime) / (1000 * 60); // minutes
+        if (this.lastTradeExecutionTime > 0 && timeSinceLastTrade < MIN_MINUTES_BETWEEN_TRADES) {
+          const remainingMinutes = (MIN_MINUTES_BETWEEN_TRADES - timeSinceLastTrade).toFixed(1);
+          console.log(`\x1b[93m[COOLDOWN] ${remainingMinutes} minutes remaining before next trade\x1b[0m`);
+          console.log(`           Signal: ${finalizedSignal.symbol} ${signal.strategy} ${signal.tradeType.toUpperCase()}`);
+          continue; // Skip this trade
+        }
+
+        // Check daily trade limit before executing
+        const limitCheck = await this.canExecuteNewTrade();
+        if (!limitCheck.allowed) {
+          console.log(`\x1b[91m[LIMIT] Trade rejected: ${limitCheck.reason}\x1b[0m`);
+          console.log(`         Signal: ${finalizedSignal.symbol} ${signal.strategy} ${signal.tradeType.toUpperCase()}`);
+          continue; // Skip this trade and move to next signal
+        }
+
         // Execute trade
         console.log(`\n\x1b[92m${'='.repeat(60)}`);
         console.log(`[TRADE EXECUTION] Opening position for ${finalizedSignal.symbol}`);
@@ -637,6 +724,12 @@ export class TradingBot {
           activeTrade.signal.entryPrice = executionPrice;
 
           this.activeTrades.push(activeTrade);
+
+          // Update last trade execution time for cooldown tracking
+          this.lastTradeExecutionTime = Date.now();
+
+          // Persist open trades to database
+          await this.syncOpenTradesToDatabase();
 
           console.log(`  ✓ Order EXECUTED`);
           console.log(`    Order ID: ${orderId}`);
@@ -756,6 +849,42 @@ export class TradingBot {
     const openCount = this.activeTrades.filter(t => t.status === "OPEN").length;
     if (openCount > 0) {
       console.log(`[ACTIVE POSITIONS] ${openCount} trade(s) open`);
+    }
+
+    // Sync updated trades to database
+    if (tradesToClose.length > 0) {
+      await this.syncOpenTradesToDatabase();
+    }
+  }
+
+  /**
+   * Sync active trades from memory to database
+   * Converts ActiveTrade[] to OpenTrade[] format and persists
+   */
+  private async syncOpenTradesToDatabase(): Promise<void> {
+    try {
+      const openTrades = this.activeTrades
+        .filter(t => t.status === "OPEN")
+        .map(t => ({
+          id: t.entryOrderId || `TRADE_${t.signal.symbol}_${t.entryTime.getTime()}`,
+          symbol: t.signal.symbol,
+          tradeType: t.signal.tradeType,
+          entryPrice: t.signal.entryPrice,
+          currentPrice: t.signal.entryPrice,
+          positionSize: t.signal.positionSize || 0,
+          entryTime: t.entryTime.getTime(),
+          stopLossPrice: t.signal.stopLossPrice,
+          takeProfitPrice: t.signal.takeProfitPrice,
+          unrealizedPnlUsd: 0,
+          riskAmountUsd: t.signal.riskAmountUsd || 0,
+          duration: Math.floor((Date.now() - t.entryTime.getTime()) / 1000),
+          isAggressive: false
+        }));
+
+      await botSignalsManager.setOpenTrades(openTrades);
+      console.debug(`[DB] Synced ${openTrades.length} open trades to database`);
+    } catch (error) {
+      console.error(`[DB] Failed to sync open trades to database:`, error);
     }
   }
 
