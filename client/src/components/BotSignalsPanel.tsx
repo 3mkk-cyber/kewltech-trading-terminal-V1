@@ -48,18 +48,68 @@ export function BotSignalsPanel() {
     if (!signals) return [];
     const normalized = signals.map(s => ({
       ...s,
-      interval: s.details?.interval || "unknown",
+      interval:
+        ((s as any).interval || s.details?.interval || "unknown")
+          ?.toString()
+          .toLowerCase(),
     }));
     if (intervalFilter === "all") return normalized;
     return normalized.filter(s => s.interval === intervalFilter);
   }, [signals, intervalFilter]);
 
-  const recentSignals = useMemo(() => filtered.slice(0, 5), [filtered]);
+  // Keep the best signal per symbol and cap display to 4 per interval tab
+  const rankedSignals = useMemo(() => {
+    const bestBySymbol = new Map<string, BotSignal & { interval?: string }>();
+
+    const qualityScore = (sig: BotSignal & { details?: any }) =>
+      sig.details?.aiScore ?? sig.details?.qualityScore ?? 0;
+    const confidenceScore = (sig: BotSignal) => sig.confidence ?? 0;
+
+    for (const sig of filtered) {
+      const current = bestBySymbol.get(sig.symbol);
+      const sigQuality = qualityScore(sig);
+      const curQuality = current ? qualityScore(current) : -1;
+      const sigConf = confidenceScore(sig);
+      const curConf = current ? confidenceScore(current) : -1;
+      const sigTime = normalizeTimestamp(sig.signalTime);
+      const curTime = current ? normalizeTimestamp(current.signalTime) : 0;
+
+      const isBetter =
+        !current ||
+        sigQuality > curQuality ||
+        (sigQuality === curQuality && sigConf > curConf) ||
+        (sigQuality === curQuality && sigConf === curConf && sigTime > curTime);
+
+      if (isBetter) {
+        bestBySymbol.set(sig.symbol, sig);
+      }
+    }
+
+    const sortForAll = (a: BotSignal, b: BotSignal) => {
+      const qualityDiff = qualityScore(b) - qualityScore(a);
+      if (qualityDiff !== 0) return qualityDiff;
+      const confDiff = confidenceScore(b) - confidenceScore(a);
+      if (confDiff !== 0) return confDiff;
+      return normalizeTimestamp(b.signalTime) - normalizeTimestamp(a.signalTime);
+    };
+
+    const sortForInterval = (a: BotSignal, b: BotSignal) => {
+      const confDiff = confidenceScore(b) - confidenceScore(a);
+      if (confDiff !== 0) return confDiff;
+      const qualityDiff = qualityScore(b) - qualityScore(a);
+      if (qualityDiff !== 0) return qualityDiff;
+      return normalizeTimestamp(b.signalTime) - normalizeTimestamp(a.signalTime);
+    };
+
+    return Array.from(bestBySymbol.values())
+      .sort(intervalFilter === "all" ? sortForAll : sortForInterval)
+      .slice(0, 4);
+  }, [filtered, intervalFilter]);
 
   if (isLoading) {
     return (
       <div className="space-y-3">
-        {[1, 2].map((i) => (
+        {[1, 2, 3, 4].map((i) => (
           <div key={i} className="h-24 bg-muted animate-pulse rounded" />
         ))}
       </div>
@@ -95,7 +145,7 @@ export function BotSignalsPanel() {
         ))}
       </div>
 
-      {recentSignals.map((signal) => (
+      {rankedSignals.map((signal) => (
         <SignalCard key={signal.id} signal={signal} />
       ))}
     </div>

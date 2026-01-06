@@ -24,6 +24,7 @@ import {
   MAX_DAILY_TRADES,
   MAX_DAILY_FAST_TRADES,
   MAX_DAILY_SWING_TRADES,
+  DAILY_MAX_LOSS_USD,
   MIN_MINUTES_BETWEEN_TRADES,
   FAST_COOLDOWN_MINUTES,
   SWING_COOLDOWN_MINUTES,
@@ -47,7 +48,8 @@ import {
   TRAIL_START_R_MULTIPLIER,
   TRAIL_OFFSET_R,
   FAST_TIME_STOP_MINUTES,
-  SWING_TIME_STOP_MINUTES
+  SWING_TIME_STOP_MINUTES,
+  ALLOW_5M_AUTO_EXECUTION
 } from './config';
 import { getEMATrend } from './utils';
 
@@ -61,6 +63,8 @@ export class TradingBot {
   private lastTradeExecutionTime: number = 0; // Track last trade time for cooldown
   private lastTradeByInterval: Record<string, number> = {};
   private priceCache: Map<string, { price: number; updatedAt: number; raw: any }>;
+  private scanTimer?: NodeJS.Timeout;
+  private stopRequested = false;
 
   constructor() {
     this.apiClient = new WoofiProAPIClient();
@@ -88,17 +92,30 @@ export class TradingBot {
   }
 
   start(): void {
+    this.stopRequested = false;
     console.log("Starting DepthSignals-Inspired Trading Bot...");
     console.log(`Symbols: ${MONITORED_SYMBOLS.join(', ')}, Scan Interval: ${SCAN_INTERVAL_SECONDS}s`);
     console.log(`Account Equity: $${ACCOUNT_EQUITY_USD.toLocaleString()}, Risk per Trade: ${(RISK_PERCENTAGE_PER_TRADE * 100).toFixed(2)}%`);
 
-    setInterval(async () => {
+    this.scanTimer = setInterval(async () => {
       try {
+        if (this.stopRequested) {
+          return;
+        }
         await this.performScanCycle();
       } catch (error: any) {
         console.error(`\x1b[91mScan cycle error: ${error.message}\x1b[0m`, error);
       }
     }, SCAN_INTERVAL_SECONDS * 1000);
+  }
+
+  async stop(): Promise<void> {
+    this.stopRequested = true;
+    if (this.scanTimer) {
+      clearInterval(this.scanTimer);
+      this.scanTimer = undefined;
+    }
+    console.log("TradingBot stopped.");
   }
 
   private async performScanCycle(): Promise<void> {
@@ -277,7 +294,7 @@ export class TradingBot {
           // Use native symbol format for WooFi (e.g., SPOT_BTC_USDT)
           const tickerData = tickerMap[dbTrade.symbol];
           const currentPrice = tickerData ? parseFloat(tickerData.c) : dbTrade.entryPrice;
-          const entryTimeMs = dbTrade.entryTime instanceof Date ? dbTrade.entryTime.getTime() : dbTrade.entryTime;
+          const entryTimeMs = new Date(dbTrade.entryTime).getTime();
 
           // Calculate P&L based on trade direction
           // LONG: profit when price goes UP (currentPrice - entryPrice)
@@ -595,6 +612,24 @@ export class TradingBot {
     }
   }
 
+  private async getTodayNetPnlUsd(): Promise<number> {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    try {
+      const result: any = await db.execute(
+        sql`select coalesce(sum(net_pnl_usd), 0)::float as net_pnl_usd from trades where exit_time >= ${today}`
+      );
+
+      const rows: any[] = (result as any)?.rows || [];
+      const value = rows.length ? Number(rows[0].net_pnl_usd) || 0 : 0;
+      return value;
+    } catch (error) {
+      console.error('[ERROR] Failed to calculate today\'s net P&L:', error);
+      return 0;
+    }
+  }
+
   private async getTodayIntervalCounts(): Promise<Record<string, number>> {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -664,13 +699,19 @@ export class TradingBot {
 
   private async processSignals(signals: TradeSignal[]): Promise<void> {
     console.log(`\n[AI] Evaluating ${signals.length} signals with learning engine...`);
+    const todayNetPnlUsd = await this.getTodayNetPnlUsd();
+    const lossCapBreached = todayNetPnlUsd <= -DAILY_MAX_LOSS_USD;
+
+    if (lossCapBreached) {
+      console.log(`[RISK] Daily loss cap reached (net ${todayNetPnlUsd.toFixed(2)} <= -${DAILY_MAX_LOSS_USD.toFixed(2)}) - auto execution paused`);
+    }
     
     const intervalThresholds: Record<string, { minConfidence: number; minScore: number; executeScore: number }> = {
-      '5m': { minConfidence: 55, minScore: 55, executeScore: 65 },
-      '15m': { minConfidence: 58, minScore: 58, executeScore: 68 },
-      '1h': { minConfidence: 60, minScore: 60, executeScore: 60 },
-      '4h': { minConfidence: 65, minScore: 65, executeScore: 65 },
-      default: { minConfidence: 60, minScore: 60, executeScore: 60 }
+      '5m': { minConfidence: 45, minScore: 55, executeScore: 65 },
+      '15m': { minConfidence: 50, minScore: 60, executeScore: 70 },
+      '1h': { minConfidence: 55, minScore: 65, executeScore: 75 },
+      '4h': { minConfidence: 65, minScore: 70, executeScore: 78 },
+      default: { minConfidence: 60, minScore: 65, executeScore: 70 }
     };
 
     const executableSignals: TradeSignal[] = [];
@@ -715,6 +756,22 @@ export class TradingBot {
 
       if (!meetsScore) {
         console.log(`[AI] ✗ Signal rejected (score ${qualityFactors.overallScore.toFixed(1)} < ${thresholds.minScore})`);
+        continue;
+      }
+
+      // Force emit-only when 5m auto execution is disabled
+      if (signal.interval === '5m' && !ALLOW_5M_AUTO_EXECUTION) {
+        signal.emitOnly = true;
+        emitOnlySignals.push(signal);
+        console.log(`[RISK] 5m auto-exec disabled → emit-only ${signal.symbol} ${signal.interval}`);
+        continue;
+      }
+
+      // Halt auto execution after hitting daily loss cap, but continue emitting for visibility
+      if (lossCapBreached) {
+        signal.emitOnly = true;
+        emitOnlySignals.push(signal);
+        console.log(`[RISK] Daily loss cap active → emit-only ${signal.symbol} ${signal.interval}`);
         continue;
       }
 
@@ -1064,8 +1121,16 @@ export class TradingBot {
         const ticker = await this.apiClient.getCurrentPrice(sym);
         if (ticker) {
           this.priceCache.set(sym, { price: parseFloat(ticker.c), updatedAt: now, raw: ticker });
+          return [sym, ticker] as const;
         }
-        return [sym, ticker] as const;
+
+        // If API returned null, fall back to cache instead of dropping the symbol
+        const cachedFallback = this.priceCache.get(sym);
+        if (cachedFallback) {
+          return [sym, cachedFallback.raw] as const;
+        }
+
+        return [sym, null] as const;
       } catch (err) {
         console.debug(`Ticker fetch failed for ${sym}:`, err);
         // Fall back to cached value if available

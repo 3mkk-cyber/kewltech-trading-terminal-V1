@@ -378,7 +378,7 @@ class BotSignalsManager {
 
       // Update or insert each trade
       for (const trade of openTrades) {
-        const entryTimeMs = trade.entryTime instanceof Date ? trade.entryTime.getTime() : trade.entryTime;
+        const entryTimeMs = new Date(trade.entryTime).getTime();
         const tradeKey = `${trade.symbol}_${entryTimeMs}`;
         const existingTrade = existingTradesMap.get(tradeKey);
 

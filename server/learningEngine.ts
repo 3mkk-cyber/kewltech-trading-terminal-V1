@@ -573,8 +573,14 @@ class LearningEngine {
       : 50;
 
     // Pattern score
+    // Patterns are stored by patternType+interval; fall back to strategy+interval for legacy data
     const patternKey = `${signal.strategy}_${signal.interval}`;
-    const patternQuality = this.patternQuality.get(patternKey);
+    const patternKeyAlt = `${signal.strategy.toUpperCase?.() || signal.strategy}_${signal.interval}`;
+    const patternQuality =
+      this.patternQuality.get(patternKey) ||
+      this.patternQuality.get(patternKeyAlt) ||
+      this.patternQuality.get(`${signal.strategy}_${signal.interval}`) || // legacy
+      this.patternQuality.get(`${signal.interval}_${signal.strategy}`); // extra fallback
     const patternScore = patternQuality 
       ? patternQuality.reliability 
       : 50;
@@ -587,11 +593,11 @@ class LearningEngine {
 
     // Calculate weighted overall score
     const overallScore = (
-      strategyScore * 0.30 +
-      symbolScore * 0.25 +
+      strategyScore * 0.25 +
+      symbolScore * 0.20 +
       patternScore * 0.25 +
-      timingScore * 0.10 +
-      marketConditionScore * 0.10
+      timingScore * 0.15 +
+      marketConditionScore * 0.15
     );
 
     return {
@@ -667,21 +673,18 @@ class LearningEngine {
       return baseSize; // Use base size for unproven strategies
     }
 
-    // Adjust position size based on win rate and confidence
-    const winRateMultiplier = strategyPerf.winRate / 50; // 50% is baseline
-    const confidenceMultiplier = strategyPerf.confidenceScore / 70; // 70 is baseline
-    
-    // Combine multipliers with learning rate to smooth adjustments
-    const adjustmentFactor = (
-      1.0 + 
-      (winRateMultiplier - 1.0) * this.LEARNING_RATE +
-      (confidenceMultiplier - 1.0) * this.LEARNING_RATE
-    );
+    const losing = strategyPerf.winRate < 45 || strategyPerf.confidenceScore < 55;
+    const winning = strategyPerf.winRate > 60 && strategyPerf.confidenceScore > 65;
 
-    // Cap adjustments to prevent extreme position sizes
-    const boundedFactor = Math.max(0.5, Math.min(1.5, adjustmentFactor));
-    
-    return baseSize * boundedFactor;
+    if (losing) {
+      return baseSize * 0.5; // Cut risk while recovering
+    }
+
+    if (winning) {
+      return Math.min(baseSize * 1.25, baseSize * 1.5);
+    }
+
+    return baseSize; // Neutral
   }
 
   /**
@@ -700,18 +703,22 @@ class LearningEngine {
     }
 
     // Filter if strategy has consistently poor performance
-    if (strategyPerf.winRate < 35 && strategyPerf.confidenceScore > 70) {
-      console.log(`[LEARNING] Filtering signal: ${signal.strategy} has ${strategyPerf.winRate.toFixed(1)}% win rate`);
+    if (strategyPerf.totalTrades >= Math.max(10, this.MIN_SAMPLE_SIZE) && strategyPerf.winRate < 45) {
+      console.log(`[LEARNING] Filtering signal: ${signal.strategy} has ${strategyPerf.winRate.toFixed(1)}% win rate (n=${strategyPerf.totalTrades})`);
       return true;
     }
 
     // Check pattern quality
     const patternKey = `${signal.strategy}_${signal.interval}`;
-    const patternQuality = this.patternQuality.get(patternKey);
-    
-    if (patternQuality && patternQuality.sampleSize >= this.MIN_SAMPLE_SIZE) {
-      if (patternQuality.successRate < 35 && patternQuality.reliability > 60) {
-        console.log(`[LEARNING] Filtering signal: ${patternKey} has ${patternQuality.successRate.toFixed(1)}% success rate`);
+    const patternKeyAlt = `${signal.strategy.toUpperCase?.() || signal.strategy}_${signal.interval}`;
+    const patternQuality =
+      this.patternQuality.get(patternKey) ||
+      this.patternQuality.get(patternKeyAlt) ||
+      this.patternQuality.get(`${signal.interval}_${signal.strategy}`);
+
+    if (patternQuality && patternQuality.sampleSize >= Math.max(10, this.MIN_SAMPLE_SIZE)) {
+      if (patternQuality.successRate < 45 && patternQuality.reliability > 55) {
+        console.log(`[LEARNING] Filtering signal: ${patternKey} has ${patternQuality.successRate.toFixed(1)}% success rate (n=${patternQuality.sampleSize})`);
         return true;
       }
     }
@@ -761,6 +768,13 @@ class LearningEngine {
       symbols: Array.from(this.symbolPerformance.values()),
       patterns: Array.from(this.patternQuality.values())
     };
+  }
+
+  async cleanup(): Promise<void> {
+    // Clear in-memory caches; scheduled intervals will naturally exit on process shutdown
+    this.strategyPerformance.clear();
+    this.symbolPerformance.clear();
+    this.patternQuality.clear();
   }
 }
 

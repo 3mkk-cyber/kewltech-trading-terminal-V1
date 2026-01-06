@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Zap, TrendingUp, TrendingDown } from "lucide-react";
+import { AlertTriangle, TrendingUp, TrendingDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 
@@ -27,15 +27,45 @@ export function BotPatternsPanel() {
     retry: 1,
   });
 
-  const recentPatterns = useMemo(
-    () => (patterns || []).slice(0, 3),
-    [patterns]
-  );
+  const recentPatterns = useMemo(() => {
+    const statusRank: Record<BotPattern["status"], number> = {
+      breakout: 0,
+      confirmed: 1,
+      forming: 2,
+    };
+
+    const bestBySymbol = new Map<string, BotPattern>();
+
+    for (const pattern of patterns || []) {
+      const current = bestBySymbol.get(pattern.symbol);
+      if (!current) {
+        bestBySymbol.set(pattern.symbol, pattern);
+        continue;
+      }
+
+      const isBetterStatus =
+        statusRank[pattern.status] < statusRank[current.status];
+      const isSameStatus = pattern.status === current.status;
+      const isNewer = pattern.detectionTime > current.detectionTime;
+
+      if (isBetterStatus || (isSameStatus && isNewer)) {
+        bestBySymbol.set(pattern.symbol, pattern);
+      }
+    }
+
+    return Array.from(bestBySymbol.values())
+      .sort((a, b) => {
+        const statusDiff = statusRank[a.status] - statusRank[b.status];
+        if (statusDiff !== 0) return statusDiff;
+        return b.detectionTime - a.detectionTime;
+      })
+      .slice(0, 5);
+  }, [patterns]);
 
   if (isLoading) {
     return (
       <div className="space-y-2">
-        {[1, 2].map((i) => (
+        {[1, 2, 3, 4, 5].map((i) => (
           <div key={i} className="h-16 bg-muted animate-pulse rounded" />
         ))}
       </div>

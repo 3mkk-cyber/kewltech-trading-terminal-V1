@@ -67,6 +67,10 @@ export const MAX_DAILY_5M_TRADES = 3; // Limit 5m trades per symbol per day
 export const MIN_PATTERN_AGE_5M = 3; // Minimum pattern age in candles before breakout
 export const MAX_SLIPPAGE_5M = 0.001; // Maximum allowed slippage (0.1%)
 
+// --- Risk Guardrails ---
+export const DAILY_MAX_LOSS_USD = 250; // Halt auto-execution when daily net PnL falls below -$250
+export const ALLOW_5M_AUTO_EXECUTION = false; // Force 5m signals to emit-only until stabilized
+
 // --- Logging ---
 export const LOG_LEVEL = "INFO"; // DEBUG, INFO, WARNING, ERROR
 export const LOG_FILE = "trading_bot.log";
