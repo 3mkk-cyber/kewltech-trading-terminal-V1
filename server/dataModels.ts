@@ -56,6 +56,15 @@ export interface TradeSignal {
   patternDetails?: Pattern;
   riskAmountUsd?: number;
   positionSize?: number;
+  confidenceScore?: number; // 0-100 pattern confidence at generation time
+  aiScore?: number; // 0-100 learning engine quality score
+  aiFactors?: {
+    overallScore: number;
+    strategyScore: number;
+    symbolScore: number;
+    patternScore: number;
+  };
+  emitOnly?: boolean; // publish but do not auto-execute
 }
 
 export interface ActiveTrade {
@@ -70,4 +79,12 @@ export interface ActiveTrade {
   exitReason?: string;
   pnlUsd?: number;
   feesUsd?: number;
+  realizedPnlUsd?: number; // P&L realized on partial exits
+  movedToBreakeven?: boolean;
+  partialTaken?: boolean;
+  trailingActive?: boolean;
+  highestPrice?: number; // For trailing long
+  lowestPrice?: number; // For trailing short
+  timeStopMinutes?: number;
+  riskPerUnitBaseline?: number;
 }

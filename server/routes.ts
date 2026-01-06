@@ -462,22 +462,24 @@ export async function registerRoutes(
   app.get("/api/bot/signals", async (req, res) => {
     try {
       const symbol = req.query.symbol as string | undefined;
+      const intervalFilter = (req.query.interval as string | undefined)?.toLowerCase();
+      const maxAgeMinutes = Math.max(30, Math.min(720, parseInt(req.query.maxAgeMinutes as string) || 240)); // clamp 30m-12h, default 4h
+      const minConfidence = Math.max(0, Math.min(100, parseInt(req.query.minConfidence as string) || 70));
       const allSignals = symbol
         ? await botSignalsManager.getSignalsBySymbol(symbol.toUpperCase())
         : await botSignalsManager.getSignals();
       
-      // Filter to show only high-quality recent signals
-      const twoHoursAgo = Date.now() - (2 * 60 * 60 * 1000);
+      // Filter to show recent signals with optional interval + confidence gating
+      const cutoff = Date.now() - maxAgeMinutes * 60 * 1000;
       const filteredSignals = allSignals
         .filter(signal => {
-          // Only show signals with high confidence (85%+)
-          if (signal.confidence && signal.confidence < 85) return false;
-          // Only show signals from last 2 hours
-          if (signal.signalTime < twoHoursAgo) return false;
+          if (signal.signalTime < cutoff) return false;
+          if (signal.confidence !== undefined && signal.confidence < minConfidence) return false;
+          if (intervalFilter && (signal as any).interval?.toLowerCase() !== intervalFilter) return false;
           return true;
         })
         .sort((a, b) => b.signalTime - a.signalTime) // Most recent first
-        .slice(0, 20); // Limit to 20 best signals
+        .slice(0, 50); // Limit to keep payload light
       
       res.json({ success: true, data: filteredSignals });
     } catch (error: any) {
@@ -578,21 +580,31 @@ export async function registerRoutes(
       }
 
       // Transform trade data to match frontend expectations
-      const transformedTrades = trades.map((trade: any) => ({
-        id: trade.id,
-        symbol: trade.symbol,
-        tradeType: trade.tradeType || "long",
-        entryPrice: trade.entryPrice,
-        currentPrice: trade.currentPrice,
-        positionSize: trade.positionSize,
-        entryTime: trade.entryTime,
-        unrealizedPnlUsd: trade.unrealizedPnl || trade.unrealizedPnlUsd || 0,
-        stopLossPrice: trade.stopLossPrice,
-        takeProfitPrice: trade.takeProfitPrice,
-        riskAmountUsd: trade.riskAmount || trade.riskAmountUsd || 0,
-        duration: trade.durationSeconds || trade.duration || 0,
-        isAggressive: trade.isAggressive || true, // Default to true for 5m trades
-      }));
+      const transformedTrades = trades.map((trade: any) => {
+        const entryTimeMs = trade.entryTime instanceof Date
+          ? trade.entryTime.getTime()
+          : typeof trade.entryTime === 'string'
+            ? new Date(trade.entryTime).getTime()
+            : trade.entryTime || Date.now();
+
+        const durationSeconds = trade.durationSeconds || trade.duration || Math.floor((Date.now() - entryTimeMs) / 1000);
+
+        return {
+          id: trade.id,
+          symbol: trade.symbol,
+          tradeType: trade.tradeType || "long",
+          entryPrice: trade.entryPrice,
+          currentPrice: trade.currentPrice,
+          positionSize: trade.positionSize,
+          entryTime: entryTimeMs,
+          unrealizedPnlUsd: trade.unrealizedPnl || trade.unrealizedPnlUsd || 0,
+          stopLossPrice: trade.stopLossPrice,
+          takeProfitPrice: trade.takeProfitPrice,
+          riskAmountUsd: trade.riskAmount || trade.riskAmountUsd || 0,
+          duration: durationSeconds,
+          isAggressive: trade.isAggressive || false,
+        };
+      });
 
       await botSignalsManager.setOpenTrades(transformedTrades);
       res.json({ success: true, data: transformedTrades });

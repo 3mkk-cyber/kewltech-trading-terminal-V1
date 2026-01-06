@@ -559,8 +559,8 @@ export class EnhancedPatternRecognizer {
     // Calculate pattern confidence
     const confidence = this.calculatePatternConfidence(pattern, indicators, srLevels);
     
-    // Require minimum confidence score (Option C: Lowered from 60 to 40 for bootstrap phase)
-    if (confidence.score < 40) {
+    // Require higher minimum confidence score for cleaner signals
+    if (confidence.score < 60) {
       console.log(`[FILTER] ✗ Pattern ${pattern.patternType} for ${pattern.symbol} rejected: Low confidence (${confidence.score})`);
       return null;
     }
@@ -625,7 +625,8 @@ export class EnhancedPatternRecognizer {
       stopLossPrice,
       takeProfitPrice,
       signalTime: lastCandle.closeTime,
-      patternDetails: pattern
+      patternDetails: pattern,
+      confidenceScore: confidence.score
     };
   }
 
@@ -665,12 +666,7 @@ export class EnhancedPatternRecognizer {
               this.tradingBot.sendPatternToApi(symbol, interval, pattern.patternType, true);
             }
 
-            // Auto-trade if enabled
-            if (AUTO_TRADE_ON_PATTERN_DETECTION && this.tradingBot && 
-                this.tradingBot.activeTrades.length < MAX_CONCURRENT_TRADES) {
-              console.log(`[AUTO TRADE] Executing ${signal.tradeType.toUpperCase()} on ${pattern.patternType}`);
-              await this.tradingBot.processSignals([signal]);
-            }
+            // Auto-trade path removed to avoid duplicate executions; tradingBot orchestrates execution centrally
           }
         }
       }

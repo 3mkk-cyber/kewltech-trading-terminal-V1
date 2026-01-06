@@ -31,7 +31,9 @@ export function BotSignalsPanel() {
   const { data: signals, isLoading } = useQuery({
     queryKey: ["bot-signals"],
     queryFn: async () => {
-      const res = await fetch("/api/bot/signals");
+      // Request a broader window and lower confidence gate so we see more intervals
+      const params = new URLSearchParams({ maxAgeMinutes: "720", minConfidence: "0" });
+      const res = await fetch(`/api/bot/signals?${params.toString()}`);
       if (!res.ok) throw new Error("Failed to fetch bot signals");
       const data = await res.json();
       return (data.data || []) as BotSignal[];
@@ -40,10 +42,19 @@ export function BotSignalsPanel() {
     retry: 1,
   });
 
-  const recentSignals = useMemo(
-    () => (signals || []).slice(0, 5),
-    [signals]
-  );
+  const [intervalFilter, setIntervalFilter] = useState<string>("all");
+
+  const filtered = useMemo(() => {
+    if (!signals) return [];
+    const normalized = signals.map(s => ({
+      ...s,
+      interval: s.details?.interval || "unknown",
+    }));
+    if (intervalFilter === "all") return normalized;
+    return normalized.filter(s => s.interval === intervalFilter);
+  }, [signals, intervalFilter]);
+
+  const recentSignals = useMemo(() => filtered.slice(0, 5), [filtered]);
 
   if (isLoading) {
     return (
@@ -66,6 +77,24 @@ export function BotSignalsPanel() {
 
   return (
     <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <span className="font-mono">Interval:</span>
+        {["all", "5m", "15m", "1h", "4h"].map(interval => (
+          <button
+            key={interval}
+            onClick={() => setIntervalFilter(interval)}
+            className={cn(
+              "px-2 py-1 rounded border transition-colors",
+              intervalFilter === interval
+                ? "border-primary text-primary"
+                : "border-border hover:border-primary/50"
+            )}
+          >
+            {interval.toUpperCase()}
+          </button>
+        ))}
+      </div>
+
       {recentSignals.map((signal) => (
         <SignalCard key={signal.id} signal={signal} />
       ))}
@@ -73,7 +102,15 @@ export function BotSignalsPanel() {
   );
 }
 
-function SignalCard({ signal }: { signal: BotSignal }) {
+function normalizeTimestamp(ts: number | string): number {
+  // Accept seconds or milliseconds; clamp obvious future drift
+  const parsed = typeof ts === "string" ? Date.parse(ts) : ts;
+  if (Number.isNaN(parsed)) return Date.now();
+  const ms = parsed < 1e12 ? parsed * 1000 : parsed; // treat values < 1e12 as seconds
+  return Math.min(ms, Date.now());
+}
+
+function SignalCard({ signal }: { signal: BotSignal & { interval?: string } }) {
   const isLong = signal.tradeType === "long";
   const riskReward =
     isLong && signal.entryPrice && signal.stopLossPrice && signal.takeProfitPrice
@@ -86,7 +123,8 @@ function SignalCard({ signal }: { signal: BotSignal }) {
         0
       : 0;
 
-  const signalDate = new Date(signal.signalTime);
+  const timestamp = normalizeTimestamp(signal.signalTime);
+  const signalDate = new Date(timestamp);
   const timeAgo = Math.floor(
     (Date.now() - signalDate.getTime()) / 1000
   );
@@ -123,7 +161,12 @@ function SignalCard({ signal }: { signal: BotSignal }) {
               </p>
             </div>
           </div>
-          <p className="text-xs text-muted-foreground">{timeStr}</p>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">{timeStr}</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-mono">
+              {(signal as any).interval?.toUpperCase?.() || signal.details?.interval?.toUpperCase?.() || "N/A"}
+            </span>
+          </div>
         </div>
 
         {/* Right: Prices */}

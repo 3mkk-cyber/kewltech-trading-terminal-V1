@@ -160,11 +160,12 @@ class BotSignalsManager {
     await this.initialize();
 
     try {
+      const interval = (signal as any).interval || signal.details?.interval || "1h";
       await db.insert(signals).values({
         symbol: signal.symbol,
         strategy: signal.strategy,
         tradeType: signal.tradeType,
-        interval: signal.details?.interval || "1h",
+        interval,
         entryPrice: signal.entryPrice,
         stopLossPrice: signal.stopLossPrice,
         takeProfitPrice: signal.takeProfitPrice,
@@ -252,6 +253,7 @@ class BotSignalsManager {
         symbol: record.symbol,
         strategy: record.strategy,
         tradeType: record.tradeType as "long" | "short",
+        interval: record.interval,
         entryPrice: record.entryPrice,
         stopLossPrice: record.stopLossPrice,
         takeProfitPrice: record.takeProfitPrice,
@@ -366,7 +368,7 @@ class BotSignalsManager {
         .from(trades)
         .where(eq(trades.status, "open"));
 
-      // Create a map of existing trades by a unique key (symbol + entryTime)
+      // Create a map of existing trades by a unique key (symbol + entryTime ms)
       const existingTradesMap = new Map(
         existingTrades.map(t => [
           `${t.symbol}_${t.entryTime.getTime()}`,
@@ -376,11 +378,12 @@ class BotSignalsManager {
 
       // Update or insert each trade
       for (const trade of openTrades) {
-        const tradeKey = `${trade.symbol}_${trade.entryTime}`;
+        const entryTimeMs = trade.entryTime instanceof Date ? trade.entryTime.getTime() : trade.entryTime;
+        const tradeKey = `${trade.symbol}_${entryTimeMs}`;
         const existingTrade = existingTradesMap.get(tradeKey);
 
         // Cache the latest trade data (with current price and P&L)
-        this.openTradesCache.set(tradeKey, trade);
+        this.openTradesCache.set(tradeKey, { ...trade, entryTime: entryTimeMs });
 
         if (existingTrade) {
           // Update existing trade with current price and P&L
@@ -402,7 +405,7 @@ class BotSignalsManager {
       }
 
       // Any remaining trades in the map are no longer active - close them
-      const tradesToClose = Array.from(existingTradesMap.values());
+        const tradesToClose = Array.from(existingTradesMap.values());
       for (const existingTrade of tradesToClose) {
         await db
           .update(trades)

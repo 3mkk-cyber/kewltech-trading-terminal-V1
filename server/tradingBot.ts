@@ -14,6 +14,7 @@ import { db } from './db';
 import { trades } from '@shared/schema';
 import { gte, sql } from 'drizzle-orm';
 import { Pattern, TradeSignal, ActiveTrade, Kline } from './dataModels';
+import { evaluateTradeExit, getTimeStopMinutes } from './tradeManagement';
 import {
   ACCOUNT_EQUITY_USD,
   RISK_PERCENTAGE_PER_TRADE,
@@ -21,7 +22,11 @@ import {
   SCAN_INTERVAL_SECONDS,
   MAX_CONCURRENT_TRADES,
   MAX_DAILY_TRADES,
+  MAX_DAILY_FAST_TRADES,
+  MAX_DAILY_SWING_TRADES,
   MIN_MINUTES_BETWEEN_TRADES,
+  FAST_COOLDOWN_MINUTES,
+  SWING_COOLDOWN_MINUTES,
   AUTO_TRADE_ON_PATTERN_DETECTION,
   AUTO_TRADE_ON_BREAKOUT,
   AGGRESSIVE_MODE,
@@ -35,7 +40,14 @@ import {
   MAX_DAILY_5M_TRADES,
   MIN_PATTERN_AGE_5M,
   MAX_SLIPPAGE_5M,
-  EMA_PERIODS
+  EMA_PERIODS,
+  BE_R_MULTIPLIER,
+  PARTIAL_R_MULTIPLIER,
+  PARTIAL_CLOSE_RATIO,
+  TRAIL_START_R_MULTIPLIER,
+  TRAIL_OFFSET_R,
+  FAST_TIME_STOP_MINUTES,
+  SWING_TIME_STOP_MINUTES
 } from './config';
 import { getEMATrend } from './utils';
 
@@ -47,6 +59,8 @@ export class TradingBot {
   private closedTrades: ActiveTrade[];
   private webApiUrl: string;
   private lastTradeExecutionTime: number = 0; // Track last trade time for cooldown
+  private lastTradeByInterval: Record<string, number> = {};
+  private priceCache: Map<string, { price: number; updatedAt: number; raw: any }>;
 
   constructor() {
     this.apiClient = new WoofiProAPIClient();
@@ -56,7 +70,13 @@ export class TradingBot {
     this.activeTrades = [];
     this.closedTrades = [];
     this.webApiUrl = "http://localhost:5000";
+    this.priceCache = new Map();
     console.log("TradingBot initialized.");
+
+    // Reload any open trades from the database so trailing/BE logic resumes after restarts
+    this.hydrateActiveTradesFromDb().catch(err => {
+      console.error("[DB] Failed to hydrate active trades:", err);
+    });
     
     // Initialize learning engine
     learningEngine.initialize().then(() => {
@@ -89,17 +109,11 @@ export class TradingBot {
 
     // Fetch EMA trends for all symbols
     const symbolsForLiveFeed = MONITORED_SYMBOLS.slice(0, 5); // Show top 5 for brevity
-    const emaCache: Record<string, Record<number, string | null>> = {};
-
-    for (const sym of MONITORED_SYMBOLS) {
-      const klines = await this.apiClient.getKlines(sym, "15m", 100);
-      if (klines) {
-        emaCache[sym] = getEMATrend(klines, EMA_PERIODS);
-      }
-    }
+    const emaCache = await this.buildEmaCache();
+    const liveTickers = await this.fetchTickers(symbolsForLiveFeed);
 
     for (const sym of symbolsForLiveFeed) {
-      const ticker = await this.apiClient.getCurrentPrice(sym);
+      const ticker = liveTickers[sym];
       if (ticker) {
         this.printLiveDataRow(ticker, emaCache[sym]);
       } else {
@@ -146,9 +160,12 @@ export class TradingBot {
     console.log(`Cycle took ${(cycleEndTime.getTime() - cycleStartTime.getTime()) / 1000}s.`);
   }
 
-  private async sendSignalToApi(signal: TradeSignal, finalizedSignal: TradeSignal): Promise<void> {
+  private async sendSignalToApi(signal: TradeSignal, finalizedSignal: TradeSignal, opts: { emitOnly?: boolean } = {}): Promise<void> {
     try {
       const signalTimestamp = signal.signalTime.getTime();
+      const confidence = Math.round(signal.confidenceScore ?? 0);
+      const aiScore = Math.round(signal.aiScore ?? 0);
+      const emitOnly = opts.emitOnly ?? signal.emitOnly ?? false;
       const signalData = {
         id: `${signal.symbol}_${signalTimestamp}`,
         symbol: signal.symbol,
@@ -160,10 +177,13 @@ export class TradingBot {
         positionSize: finalizedSignal.positionSize || 0,
         riskAmount: finalizedSignal.riskAmountUsd || 0,
         signalTime: signalTimestamp,
-        confidence: 85,
+        confidence,
         details: {
           interval: signal.interval || "1h",
-          strategy: signal.strategy
+          strategy: signal.strategy,
+          aiScore,
+          aiFactors: signal.aiFactors,
+          emitOnly
         }
       };
       const response = await axios.post(`${this.webApiUrl}/api/bot/signals`, signalData, { timeout: 5000 });
@@ -248,11 +268,16 @@ export class TradingBot {
         return;
       }
 
+      // Fetch latest prices once per unique symbol to reduce API load (and avoid 429s)
+      const symbols = Array.from(new Set(dbTrades.map(t => t.symbol)));
+      const tickerMap = await this.fetchTickers(symbols);
+
       const openTrades = await Promise.all(dbTrades.map(async (dbTrade: OpenTrade) => {
         try {
-          // Fetch current price from API
-          const currentPriceData = await this.apiClient.getCurrentPrice(dbTrade.symbol);
-          const currentPrice = currentPriceData ? parseFloat(currentPriceData.c) : dbTrade.entryPrice;
+          // Use native symbol format for WooFi (e.g., SPOT_BTC_USDT)
+          const tickerData = tickerMap[dbTrade.symbol];
+          const currentPrice = tickerData ? parseFloat(tickerData.c) : dbTrade.entryPrice;
+          const entryTimeMs = dbTrade.entryTime instanceof Date ? dbTrade.entryTime.getTime() : dbTrade.entryTime;
 
           // Calculate P&L based on trade direction
           // LONG: profit when price goes UP (currentPrice - entryPrice)
@@ -272,12 +297,12 @@ export class TradingBot {
             entryPrice: dbTrade.entryPrice,
             currentPrice,
             positionSize: dbTrade.positionSize || 0,
-            entryTime: dbTrade.entryTime,
+            entryTime: entryTimeMs,
             stopLossPrice: dbTrade.stopLossPrice,
             takeProfitPrice: dbTrade.takeProfitPrice,
             unrealizedPnlUsd: parseFloat(unrealizedPnl.toFixed(2)),
             riskAmountUsd: dbTrade.riskAmountUsd || 0,
-            duration: Math.floor((Date.now() - dbTrade.entryTime) / 1000),
+            duration: Math.floor((Date.now() - entryTimeMs) / 1000),
             isAggressive: dbTrade.isAggressive
           };
         } catch (e) {
@@ -570,40 +595,96 @@ export class TradingBot {
     }
   }
 
+  private async getTodayIntervalCounts(): Promise<Record<string, number>> {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    try {
+      const result: any = await db.execute(
+        sql`select "interval" as interval, count(*)::int as count from trades where entry_time >= ${today} group by "interval"`
+      );
+
+      const counts: Record<string, number> = {};
+      const rows: any[] = (result as any)?.rows || [];
+      for (const row of rows) {
+        if (row.interval) {
+          counts[row.interval as string] = Number(row.count) || 0;
+        }
+      }
+      return counts;
+    } catch (error) {
+      console.error('[ERROR] Failed to count interval trades:', error);
+      return {};
+    }
+  }
+
+  private getCooldownMinutes(interval?: string): number {
+    if (interval === '5m' || interval === '15m') {
+      return FAST_COOLDOWN_MINUTES;
+    }
+    if (interval === '1h' || interval === '4h') {
+      return SWING_COOLDOWN_MINUTES;
+    }
+    return MIN_MINUTES_BETWEEN_TRADES;
+  }
+
   /**
    * Check if we can execute a new trade without exceeding daily limit
    */
-  private async canExecuteNewTrade(): Promise<{ allowed: boolean; reason?: string }> {
+  private async canExecuteNewTrade(interval?: string): Promise<{ allowed: boolean; reason?: string }> {
     const todayCount = await this.getTodayTradeCount();
-    
-    // Log warnings when approaching limit
-    if (todayCount >= 900 && todayCount < 950) {
-      console.log(`\x1b[93m[LIMIT WARNING] Approaching daily limit: ${todayCount}/${MAX_DAILY_TRADES} trades today\x1b[0m`);
-    } else if (todayCount >= 950 && todayCount < 990) {
-      console.log(`\x1b[93m[LIMIT WARNING] Near daily limit: ${todayCount}/${MAX_DAILY_TRADES} trades today\x1b[0m`);
-    } else if (todayCount >= 990 && todayCount < MAX_DAILY_TRADES) {
-      console.log(`\x1b[91m[LIMIT CRITICAL] Very close to daily limit: ${todayCount}/${MAX_DAILY_TRADES} trades today\x1b[0m`);
-    }
-    
-    // Check if limit reached
+    const intervalCounts = await this.getTodayIntervalCounts();
+
+    const fastTotal = (intervalCounts['5m'] || 0) + (intervalCounts['15m'] || 0);
+    const swingTotal = (intervalCounts['1h'] || 0) + (intervalCounts['4h'] || 0);
+
     if (todayCount >= MAX_DAILY_TRADES) {
       return {
         allowed: false,
-        reason: `Daily trade limit reached: ${todayCount}/${MAX_DAILY_TRADES} (Quality over quantity)`
+        reason: `Daily trade limit reached: ${todayCount}/${MAX_DAILY_TRADES}`
       };
     }
-    
+
+    if ((interval === '5m' || interval === '15m') && fastTotal >= MAX_DAILY_FAST_TRADES) {
+      return {
+        allowed: false,
+        reason: `Fast-interval limit reached: ${fastTotal}/${MAX_DAILY_FAST_TRADES} (5m/15m)`
+      };
+    }
+
+    if ((interval === '1h' || interval === '4h') && swingTotal >= MAX_DAILY_SWING_TRADES) {
+      return {
+        allowed: false,
+        reason: `Swing-interval limit reached: ${swingTotal}/${MAX_DAILY_SWING_TRADES} (1h/4h)`
+      };
+    }
+
     return { allowed: true };
   }
 
   private async processSignals(signals: TradeSignal[]): Promise<void> {
     console.log(`\n[AI] Evaluating ${signals.length} signals with learning engine...`);
     
-    // Filter signals using learned performance data
-    const filteredSignals: TradeSignal[] = [];
+    const intervalThresholds: Record<string, { minConfidence: number; minScore: number; executeScore: number }> = {
+      '5m': { minConfidence: 55, minScore: 55, executeScore: 65 },
+      '15m': { minConfidence: 58, minScore: 58, executeScore: 68 },
+      '1h': { minConfidence: 60, minScore: 60, executeScore: 60 },
+      '4h': { minConfidence: 65, minScore: 65, executeScore: 65 },
+      default: { minConfidence: 60, minScore: 60, executeScore: 60 }
+    };
+
+    const executableSignals: TradeSignal[] = [];
+    const emitOnlySignals: TradeSignal[] = [];
     
     for (const signal of signals) {
-      // Check if this signal should be filtered based on poor historical performance
+      const thresholds = intervalThresholds[signal.interval] || intervalThresholds.default;
+      const confidenceScore = signal.confidenceScore ?? 0;
+
+      if (confidenceScore < thresholds.minConfidence) {
+        console.log(`[AI] ✗ Filtered ${signal.symbol} ${signal.interval}: confidence ${confidenceScore.toFixed(1)} < ${thresholds.minConfidence}`);
+        continue;
+      }
+
       const shouldFilter = learningEngine.shouldFilterSignal({
         symbol: signal.symbol,
         strategy: signal.strategy,
@@ -615,35 +696,54 @@ export class TradingBot {
         continue;
       }
       
-      // Calculate quality score for this signal
       const qualityFactors = await learningEngine.calculateTradeQuality({
         symbol: signal.symbol,
         strategy: signal.strategy,
         interval: signal.interval,
         tradeType: signal.tradeType
       });
+
+      signal.aiScore = qualityFactors.overallScore;
+      signal.aiFactors = qualityFactors;
       
       console.log(`[AI] ${signal.symbol} ${signal.strategy}:`);
       console.log(`     Quality Score: ${qualityFactors.overallScore.toFixed(1)}/100`);
       console.log(`     Strategy: ${qualityFactors.strategyScore.toFixed(0)} | Symbol: ${qualityFactors.symbolScore.toFixed(0)} | Pattern: ${qualityFactors.patternScore.toFixed(0)}`);
-      
-      // Only accept signals with quality score above threshold (Set to 45 for balanced testing)
-      if (qualityFactors.overallScore >= 45) {
-        filteredSignals.push(signal);
-        console.log(`[AI] ✓ Signal accepted (score: ${qualityFactors.overallScore.toFixed(1)})`);
-      } else {
-        console.log(`[AI] ✗ Signal rejected (score too low: ${qualityFactors.overallScore.toFixed(1)})`);
+
+      const meetsScore = qualityFactors.overallScore >= thresholds.minScore;
+      const shouldExecute = qualityFactors.overallScore >= thresholds.executeScore;
+
+      if (!meetsScore) {
+        console.log(`[AI] ✗ Signal rejected (score ${qualityFactors.overallScore.toFixed(1)} < ${thresholds.minScore})`);
+        continue;
       }
+
+      // For lower TFs, allow emit-only when score is good but not high enough for auto execution
+      if (!shouldExecute && (signal.interval === '5m' || signal.interval === '15m')) {
+        signal.emitOnly = true;
+        emitOnlySignals.push(signal);
+        console.log(`[AI] → Emit-only (no auto-exec) ${signal.symbol} ${signal.interval} score ${qualityFactors.overallScore.toFixed(1)}`);
+        continue;
+      }
+
+      executableSignals.push(signal);
+      console.log(`[AI] ✓ Signal accepted for execution (score: ${qualityFactors.overallScore.toFixed(1)})`);
     }
     
-    console.log(`[AI] Filtered ${signals.length} signals down to ${filteredSignals.length} high-quality signals\n`);
-    
-    if (!filteredSignals.length) {
+    console.log(`[AI] Filtered ${signals.length} signals down to ${executableSignals.length} exec + ${emitOnlySignals.length} emit-only\n`);
+
+    // Publish emit-only signals to dashboard/storage but skip trade placement
+    for (const signal of emitOnlySignals) {
+      const displaySignal = this.riskManager.calculateTradeParameters(signal) || signal;
+      await this.sendSignalToApi(signal, displaySignal as TradeSignal, { emitOnly: true });
+    }
+
+    if (!executableSignals.length) {
       return;
     }
 
-    console.log(`--- Processing ${signals.length} New Trade Signal(s) ---`);
-    for (const signal of signals) {
+    console.log(`--- Processing ${executableSignals.length} New Trade Signal(s) ---`);
+    for (const signal of executableSignals) {
       console.log(`Signal: ${signal.strategy} (${signal.tradeType.toUpperCase()}) for ${signal.symbol} on ${signal.interval} at ${signal.signalTime.toISOString()}`);
       console.log(`  Entry: ${signal.entryPrice.toFixed(4)}, SL: ${signal.stopLossPrice.toFixed(4)}, TP: ${signal.takeProfitPrice.toFixed(4)}`);
 
@@ -679,17 +779,30 @@ export class TradingBot {
           continue;
         }
 
-        // Check cooldown period between trades
-        const timeSinceLastTrade = (Date.now() - this.lastTradeExecutionTime) / (1000 * 60); // minutes
-        if (this.lastTradeExecutionTime > 0 && timeSinceLastTrade < MIN_MINUTES_BETWEEN_TRADES) {
-          const remainingMinutes = (MIN_MINUTES_BETWEEN_TRADES - timeSinceLastTrade).toFixed(1);
-          console.log(`\x1b[93m[COOLDOWN] ${remainingMinutes} minutes remaining before next trade\x1b[0m`);
+        // Check cooldown periods (global and interval-specific)
+        const now = Date.now();
+        const intervalKey = signal.interval || 'unknown';
+        const timeSinceLastGlobal = (now - this.lastTradeExecutionTime) / (1000 * 60);
+        const intervalCooldown = this.getCooldownMinutes(signal.interval);
+        const lastIntervalTs = this.lastTradeByInterval[intervalKey] || 0;
+        const timeSinceLastInterval = lastIntervalTs > 0 ? (now - lastIntervalTs) / (1000 * 60) : Number.POSITIVE_INFINITY;
+
+        if (this.lastTradeExecutionTime > 0 && timeSinceLastGlobal < MIN_MINUTES_BETWEEN_TRADES) {
+          const remainingMinutes = (MIN_MINUTES_BETWEEN_TRADES - timeSinceLastGlobal).toFixed(1);
+          console.log(`\x1b[93m[COOLDOWN] ${remainingMinutes} minutes remaining before next trade (global)\x1b[0m`);
+          console.log(`           Signal: ${finalizedSignal.symbol} ${signal.strategy} ${signal.tradeType.toUpperCase()}`);
+          continue; // Skip this trade
+        }
+
+        if (lastIntervalTs > 0 && timeSinceLastInterval < intervalCooldown) {
+          const remainingMinutes = (intervalCooldown - timeSinceLastInterval).toFixed(1);
+          console.log(`\x1b[93m[COOLDOWN] ${remainingMinutes} minutes remaining before next ${signal.interval || 'interval'} trade\x1b[0m`);
           console.log(`           Signal: ${finalizedSignal.symbol} ${signal.strategy} ${signal.tradeType.toUpperCase()}`);
           continue; // Skip this trade
         }
 
         // Check daily trade limit before executing
-        const limitCheck = await this.canExecuteNewTrade();
+        const limitCheck = await this.canExecuteNewTrade(signal.interval);
         if (!limitCheck.allowed) {
           console.log(`\x1b[91m[LIMIT] Trade rejected: ${limitCheck.reason}\x1b[0m`);
           console.log(`         Signal: ${finalizedSignal.symbol} ${signal.strategy} ${signal.tradeType.toUpperCase()}`);
@@ -717,16 +830,27 @@ export class TradingBot {
             signal: finalizedSignal,
             entryTime: new Date(),
             entryOrderId: orderId,
-            status: "OPEN"
+            status: "OPEN",
+            realizedPnlUsd: 0,
+            movedToBreakeven: false,
+            partialTaken: false,
+            trailingActive: false,
+            highestPrice: finalizedSignal.entryPrice,
+            lowestPrice: finalizedSignal.entryPrice,
+            timeStopMinutes: getTimeStopMinutes(finalizedSignal.interval),
+            riskPerUnitBaseline: Math.abs(finalizedSignal.entryPrice - finalizedSignal.stopLossPrice)
           };
 
           // Override entry price with actual execution price
           activeTrade.signal.entryPrice = executionPrice;
+          activeTrade.highestPrice = executionPrice;
+          activeTrade.lowestPrice = executionPrice;
 
           this.activeTrades.push(activeTrade);
 
           // Update last trade execution time for cooldown tracking
           this.lastTradeExecutionTime = Date.now();
+          this.lastTradeByInterval[intervalKey] = this.lastTradeExecutionTime;
 
           // Persist open trades to database
           await this.syncOpenTradesToDatabase();
@@ -761,6 +885,7 @@ export class TradingBot {
     }
 
     const tradesToClose: number[] = [];
+    let anyTradeUpdated = false;
     for (let idx = 0; idx < this.activeTrades.length; idx++) {
       const trade = this.activeTrades[idx];
       if (trade.status !== "OPEN") {
@@ -774,69 +899,41 @@ export class TradingBot {
         }
 
         const currentPrice = parseFloat(currentPriceData.c);
-        const entryPrice = trade.signal.entryPrice;
-        const stopLoss = trade.signal.stopLossPrice;
-        const takeProfit = trade.signal.takeProfitPrice;
+        const { trade: updatedTrade, closed } = evaluateTradeExit(trade, currentPrice, new Date());
+        this.activeTrades[idx] = updatedTrade;
+        anyTradeUpdated = anyTradeUpdated || closed || updatedTrade !== trade;
 
-        let exitReason: string | undefined;
-        let exitPrice: number | undefined;
+        if (closed && updatedTrade.exitReason && updatedTrade.exitPrice !== undefined) {
+          const entryPrice = updatedTrade.signal.entryPrice;
+          const remainingSize = updatedTrade.signal.positionSize || 0;
+          const totalPnl = updatedTrade.pnlUsd || 0;
 
-        if (trade.signal.tradeType === "long") {
-          if (currentPrice >= takeProfit) {
-            exitReason = "TAKE_PROFIT";
-            exitPrice = takeProfit;
-          } else if (currentPrice <= stopLoss) {
-            exitReason = "STOP_LOSS";
-            exitPrice = stopLoss;
-          }
-        } else { // short
-          if (currentPrice <= takeProfit) {
-            exitReason = "TAKE_PROFIT";
-            exitPrice = takeProfit;
-          } else if (currentPrice >= stopLoss) {
-            exitReason = "STOP_LOSS";
-            exitPrice = stopLoss;
-          }
-        }
-
-        if (exitReason && exitPrice) {
-          trade.exitTime = new Date();
-          trade.exitPrice = exitPrice;
-          trade.exitReason = exitReason;
-          trade.status = "CLOSED";
-
-          let pnl: number;
-          if (trade.signal.tradeType === "long") {
-            pnl = (exitPrice - entryPrice) * (trade.signal.positionSize || 0);
-          } else {
-            pnl = (entryPrice - exitPrice) * (trade.signal.positionSize || 0);
-          }
-          trade.pnlUsd = pnl;
-          trade.feesUsd = Math.abs(pnl) * 0.0005;
-
-          console.log(`\n\\x1b[95m${'='.repeat(60)}`);
-          console.log(`[TRADE CLOSED] ${exitReason}`);
-          console.log(`${'='.repeat(60)}\\x1b[0m`);
-          console.log(`  Symbol: ${trade.signal.symbol}`);
+          console.log(`\n\x1b[95m${'='.repeat(60)}`);
+          console.log(`[TRADE CLOSED] ${updatedTrade.exitReason}`);
+          console.log(`${'='.repeat(60)}\x1b[0m`);
+          console.log(`  Symbol: ${updatedTrade.signal.symbol}`);
           console.log(`  Entry Price: $${entryPrice.toFixed(4)}`);
-          console.log(`  Exit Price: $${exitPrice.toFixed(4)}`);
-          console.log(`  Position Size: ${(trade.signal.positionSize || 0).toFixed(4)}`);
-          console.log(`  Gross P&L: $${pnl.toFixed(2)}`);
-          console.log(`  Fees: $${trade.feesUsd.toFixed(2)}`);
-          console.log(`  Net P&L: $${(pnl - (trade.feesUsd || 0)).toFixed(2)}`);
-          console.log(`  Duration: ${trade.exitTime.getTime() - trade.entryTime.getTime()}ms`);
+          console.log(`  Exit Price: $${updatedTrade.exitPrice.toFixed(4)}`);
+          console.log(`  Position Size Closed: ${(remainingSize).toFixed(4)} (remaining before close)`);
+          if (updatedTrade.realizedPnlUsd) {
+            console.log(`  Realized Partial P&L: $${(updatedTrade.realizedPnlUsd || 0).toFixed(2)}`);
+          }
+          console.log(`  Gross P&L: $${totalPnl.toFixed(2)}`);
+          console.log(`  Fees: $${(updatedTrade.feesUsd || 0).toFixed(2)}`);
+          console.log(`  Net P&L: $${(totalPnl - (updatedTrade.feesUsd || 0)).toFixed(2)}`);
+          console.log(`  Duration: ${updatedTrade.exitTime!.getTime() - updatedTrade.entryTime.getTime()}ms`);
 
-          if (pnl > 0) {
-            console.log(`\\x1b[92m  ✓ WINNER!\\x1b[0m`);
+          if (totalPnl > 0) {
+            console.log(`\x1b[92m  ✓ WINNER!\x1b[0m`);
           } else {
-            console.log(`\\x1b[91m  ✗ LOSER\\x1b[0m`);
+            console.log(`\x1b[91m  ✗ LOSER\x1b[0m`);
           }
 
-          this.closedTrades.push(trade);
-          await this.sendClosedTradeToApi(trade);
+          this.closedTrades.push(updatedTrade);
+          await this.sendClosedTradeToApi(updatedTrade);
 
           console.log(`  Remaining Trades: ${this.activeTrades.length - 1}`);
-          console.log(`\\x1b[95m${'='.repeat(60)}\\x1b[0m\n`);
+          console.log(`\x1b[95m${'='.repeat(60)}\x1b[0m\n`);
 
           tradesToClose.push(idx);
         }
@@ -851,8 +948,8 @@ export class TradingBot {
       console.log(`[ACTIVE POSITIONS] ${openCount} trade(s) open`);
     }
 
-    // Sync updated trades to database
-    if (tradesToClose.length > 0) {
+    // Sync updated trades to database when any trade was modified
+    if (anyTradeUpdated) {
       await this.syncOpenTradesToDatabase();
     }
   }
@@ -888,6 +985,104 @@ export class TradingBot {
     }
   }
 
+  private async hydrateActiveTradesFromDb(): Promise<void> {
+    const dbTrades = await botSignalsManager.getOpenTrades();
+    if (!dbTrades.length) {
+      return;
+    }
+
+    const hydrated = dbTrades.map(dbTrade => {
+      const interval = (dbTrade as any).interval || "1h";
+      const entryPrice = dbTrade.entryPrice;
+      const stopLossPrice = dbTrade.stopLossPrice;
+
+      const signal: TradeSignal = {
+        symbol: dbTrade.symbol,
+        strategy: "rehydrated",
+        tradeType: dbTrade.tradeType,
+        interval,
+        entryPrice,
+        stopLossPrice,
+        takeProfitPrice: dbTrade.takeProfitPrice,
+        signalTime: new Date(dbTrade.entryTime),
+        positionSize: dbTrade.positionSize,
+        riskAmountUsd: dbTrade.riskAmountUsd,
+      };
+
+      const baselineRisk = Math.abs(entryPrice - stopLossPrice) || 0;
+
+      const activeTrade: ActiveTrade = {
+        signal,
+        entryTime: new Date(dbTrade.entryTime),
+        entryOrderId: dbTrade.id,
+        status: "OPEN",
+        realizedPnlUsd: 0,
+        movedToBreakeven: false,
+        partialTaken: false,
+        trailingActive: false,
+        highestPrice: entryPrice,
+        lowestPrice: entryPrice,
+        timeStopMinutes: getTimeStopMinutes(interval),
+        riskPerUnitBaseline: baselineRisk,
+      };
+
+      return activeTrade;
+    });
+
+    this.activeTrades = hydrated;
+    console.log(`[DB] Hydrated ${hydrated.length} open trade(s) from database`);
+  }
+
+  private async buildEmaCache(): Promise<Record<string, Record<number, string | null>>> {
+    const results = await Promise.all(MONITORED_SYMBOLS.map(async sym => {
+      try {
+        const klines = await this.apiClient.getKlines(sym, "15m", 100);
+        if (!klines) return [sym, undefined] as const;
+        return [sym, getEMATrend(klines, EMA_PERIODS)] as const;
+      } catch (err) {
+        console.debug(`EMA fetch failed for ${sym}:`, err);
+        return [sym, undefined] as const;
+      }
+    }));
+
+    return results.reduce<Record<string, Record<number, string | null>>>((acc, [sym, ema]) => {
+      if (ema) acc[sym] = ema;
+      return acc;
+    }, {});
+  }
+
+  private async fetchTickers(symbols: string[]): Promise<Record<string, any>> {
+    const results = await Promise.all(symbols.map(async sym => {
+      try {
+        const cached = this.priceCache.get(sym);
+        const now = Date.now();
+        // Reuse cached quote if fresher than 12s to prevent rate limits
+        if (cached && now - cached.updatedAt < 12000) {
+          return [sym, cached.raw] as const;
+        }
+
+        const ticker = await this.apiClient.getCurrentPrice(sym);
+        if (ticker) {
+          this.priceCache.set(sym, { price: parseFloat(ticker.c), updatedAt: now, raw: ticker });
+        }
+        return [sym, ticker] as const;
+      } catch (err) {
+        console.debug(`Ticker fetch failed for ${sym}:`, err);
+        // Fall back to cached value if available
+        const cached = this.priceCache.get(sym);
+        if (cached) {
+          return [sym, cached.raw] as const;
+        }
+        return [sym, null] as const;
+      }
+    }));
+
+    return results.reduce<Record<string, any>>((acc, [sym, ticker]) => {
+      if (ticker) acc[sym] = ticker;
+      return acc;
+    }, {});
+  }
+
   async run(): Promise<void> {
     console.log("Starting DepthSignals-Inspired Trading Bot...");
     console.log(`Symbols: ${MONITORED_SYMBOLS.join(', ')}, Scan Interval: ${SCAN_INTERVAL_SECONDS}s`);
@@ -905,17 +1100,11 @@ export class TradingBot {
 
         // Fetch EMA trends for all symbols
         const symbolsForLiveFeed = MONITORED_SYMBOLS.slice(0, 5); // Show top 5 for brevity
-        const emaCache: Record<string, Record<number, string | null>> = {};
-
-        for (const sym of MONITORED_SYMBOLS) {
-          const klines = await this.apiClient.getKlines(sym, "15m", 100);
-          if (klines) {
-            emaCache[sym] = getEMATrend(klines, EMA_PERIODS);
-          }
-        }
+        const emaCache = await this.buildEmaCache();
+        const liveTickers = await this.fetchTickers(symbolsForLiveFeed);
 
         for (const sym of symbolsForLiveFeed) {
-          const ticker = await this.apiClient.getCurrentPrice(sym);
+          const ticker = liveTickers[sym];
           if (ticker) {
             this.printLiveDataRow(ticker, emaCache[sym]);
           } else {

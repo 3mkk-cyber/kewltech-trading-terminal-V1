@@ -39,8 +39,21 @@ export const AUTO_TRADE_ON_PATTERN_DETECTION = true; // Automatically execute tr
 export const AUTO_TRADE_ON_BREAKOUT = true; // Automatically execute on pattern breakout
 export const AGGRESSIVE_MODE = true; // Trade more patterns with relaxed thresholds
 export const MAX_CONCURRENT_TRADES = 5; // Maximum number of simultaneous open positions
-export const MAX_DAILY_TRADES = 20; // Maximum trades per day (quality over quantity)
+export const MAX_DAILY_TRADES = 50; // Total cap across all intervals
+export const MAX_DAILY_FAST_TRADES = 35; // 5m + 15m combined
+export const MAX_DAILY_SWING_TRADES = 15; // 1h + 4h combined
 export const MIN_MINUTES_BETWEEN_TRADES = 15; // Minimum 15 minutes between trades to avoid over-trading
+export const FAST_COOLDOWN_MINUTES = 10; // Min minutes between trades for 5m/15m buckets
+export const SWING_COOLDOWN_MINUTES = 30; // Min minutes between trades for 1h/4h buckets
+
+// --- Trade Management Parameters ---
+export const BE_R_MULTIPLIER = 1.0; // Move stop to breakeven after this R
+export const PARTIAL_R_MULTIPLIER = 1.5; // Take partial profits after this R
+export const PARTIAL_CLOSE_RATIO = 0.5; // Portion of position to close on partial
+export const TRAIL_START_R_MULTIPLIER = 2.0; // Start trailing stop after this R
+export const TRAIL_OFFSET_R = 0.8; // Trail distance in R multiples
+export const FAST_TIME_STOP_MINUTES = 180; // Flat after 3h for 5m/15m trades
+export const SWING_TIME_STOP_MINUTES = 720; // Flat after 12h for 1h/4h trades
 
 // --- 5-Minute Conservative Trading Configuration (BTC & ETH Only) ---
 export const AGGRESSIVE_5M_SYMBOLS = ['SPOT_BTC_USDT', 'SPOT_ETH_USDT']; // Trade 5-minute candles for these symbols

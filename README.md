@@ -141,6 +141,8 @@ Edit [server/config.ts](server/config.ts) to customize:
 - **Timeframes**: Modify scan intervals and candle periods
 - **Auto-Trading**: Enable/disable automated execution
 - **Learning Engine**: Configure quality thresholds and filter settings
+- **Trade Management**: Breakeven move, partials, trailing stop, and time-stop windows (see BE/partial/trailing/time-stop constants)
+- **Pacing & Limits**: Daily caps (overall, fast 5m/15m, swing 1h/4h) and interval-specific cooldowns
 
 ### Manual Trading
 While auto-trading is enabled by default, you can:
@@ -166,6 +168,11 @@ npm run test:db
 ### Pattern Detection Test
 ```bash
 python test_paper_trading.py
+```
+
+### Trade Management Dry-Run (no exchange calls)
+```bash
+npx tsx script/dryRunTradeManagement.ts
 ```
 
 ---
