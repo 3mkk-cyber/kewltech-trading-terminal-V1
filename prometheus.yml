@@ -1,0 +1,16 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'kewltech-app'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['host.docker.internal:5000', 'localhost:5000']
+        labels:
+          service: kewltech
+
+  # Example: scrape other services (node_exporter, postgres exporter) if added
+  # - job_name: 'node'
+  #   static_configs:
+  #     - targets: ['host.docker.internal:9100']
