@@ -3,9 +3,9 @@ services:
     image: postgres:16-alpine
     container_name: depthsignals-postgres
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password123
-      POSTGRES_DB: depthsignals_trading
+      POSTGRES_USER: app_user
+      POSTGRES_PASSWORD: app_pass123
+      POSTGRES_DB: kewltech_trading
       POSTGRES_HOST_AUTH_METHOD: md5
       POSTGRES_INITDB_ARGS: "--auth-host=md5"
     ports:
@@ -13,7 +13,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d depthsignals_trading"]
+      test: ["CMD-SHELL", "pg_isready -U app_user -d kewltech_trading"]
       interval: 10s
       timeout: 5s
       retries: 5

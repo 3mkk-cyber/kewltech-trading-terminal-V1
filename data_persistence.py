@@ -17,7 +17,7 @@ import time
 env_path = Path(__file__).parent / ".env.local"
 load_dotenv(env_path)
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@localhost:5432/kewltech_trading")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://app_user:app_pass123@localhost:5432/kewltech_trading")
 
 # Logging setup
 logging.basicConfig(

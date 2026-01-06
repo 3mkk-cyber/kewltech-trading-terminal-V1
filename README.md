@@ -97,7 +97,7 @@ WOOFI_API_SECRET=your_api_secret_here
 WOOFI_APPLICATION_ID=your_app_id_here
 
 # Database Configuration
-DATABASE_URL=postgresql://user:password@localhost:5432/depthsignals_trading
+DATABASE_URL=postgresql://app_user:app_pass123@localhost:5432/kewltech_trading
 
 # Server Configuration
 PORT=5000

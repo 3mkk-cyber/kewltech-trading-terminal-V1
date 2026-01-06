@@ -406,16 +406,16 @@ export class TradingBot {
     if (signal.tradeType === "long") {
       // LONG: SL below entry, TP above entry
       stopLossPrice = Math.min(signal.stopLossPrice, signal.entryPrice - stopDistance);
-      takeProfitPrice = Math.max(signal.takeProfitPrice, signal.entryPrice + (stopDistance * 2)); // 2:1 reward ratio
+      takeProfitPrice = Math.max(signal.takeProfitPrice, signal.entryPrice + (stopDistance * 2.5)); // 2.5:1 reward ratio
     } else {
       // SHORT: SL above entry, TP below entry
       stopLossPrice = Math.max(signal.stopLossPrice, signal.entryPrice + stopDistance);
-      takeProfitPrice = Math.min(signal.takeProfitPrice, signal.entryPrice - (stopDistance * 2));
+      takeProfitPrice = Math.min(signal.takeProfitPrice, signal.entryPrice - (stopDistance * 2.5));
     }
 
     // Validate stop loss distance
     const riskPerUnit = Math.abs(signal.entryPrice - stopLossPrice);
-    if (riskPerUnit / signal.entryPrice < 0.002) { // Minimum 0.2% risk
+    if (riskPerUnit / signal.entryPrice < 0.001) { // Minimum 0.1% risk
       console.debug(`[5M] Stop loss too tight for ${signal.symbol}, skipping`);
       return null;
     }

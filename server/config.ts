@@ -26,7 +26,7 @@ export const TRENDLINE_SLOPE_DIFF_THRESHOLD = 0.00001; // Minimum slope differen
 
 export const ORB_DURATION_MINUTES = 15; // Opening Range duration in minutes
 export const ORB_BREAKOUT_BUFFER_FACTOR = 1.001; // Buffer for breakout (e.g., 0.1%)
-export const ORB_RISK_REWARD_RATIO = 1.5; // Target profit as multiple of risk
+export const ORB_RISK_REWARD_RATIO = 2.5; // Target profit as multiple of risk (aligned with wedge/5m targets)
 
 // --- Bot Operation Parameters ---
 export const MONITORED_SYMBOLS = ['SPOT_BTC_USDT', 'SPOT_ETH_USDT', 'SPOT_SOL_USDT', 'SPOT_ADA_USDT', 'SPOT_DOGE_USDT', 'SPOT_POL_USDT'];

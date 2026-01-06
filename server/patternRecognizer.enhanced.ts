@@ -565,18 +565,15 @@ export class EnhancedPatternRecognizer {
       return null;
     }
 
-    // Trend Filter (Option C: DISABLED during bootstrap phase to allow counter-trend patterns)
-    // Counter-trend patterns can be highly profitable, especially at extremes
-    /*
+    // Trend Filter: require trend alignment with EMA50
     if (isBullish && indicators.emaTrends[50] === 'bearish') {
-      console.log(`[FILTER] ✗ Rejecting LONG ${pattern.patternType} for ${pattern.symbol}: Bearish trend`);
+      console.log(`[FILTER] ✗ Rejecting LONG ${pattern.patternType} for ${pattern.symbol}: Bearish trend (EMA50)`);
       return null;
     }
     if (!isBullish && indicators.emaTrends[50] === 'bullish') {
-      console.log(`[FILTER] ✗ Rejecting SHORT ${pattern.patternType} for ${pattern.symbol}: Bullish trend`);
+      console.log(`[FILTER] ✗ Rejecting SHORT ${pattern.patternType} for ${pattern.symbol}: Bullish trend (EMA50)`);
       return null;
     }
-    */
 
     // RSI Filter (Option C: Relaxed from 70 to 85 for shorts, allows trading in overbought conditions)
     if (indicators.rsi) {
