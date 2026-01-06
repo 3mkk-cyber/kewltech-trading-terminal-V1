@@ -6,13 +6,63 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import net from "net";
 import { db, pool } from "./db";
 import { sql } from "drizzle-orm";
 import { TradingBot } from "./tradingBot";
 import * as crypto from "crypto";
+import { collectDefaultMetrics, Registry, Counter, Gauge, Histogram } from "prom-client";
 
 const app = express();
 const httpServer = createServer(app);
+
+// Track active requests and raw socket connections to allow graceful draining
+let activeRequests = 0;
+const connections = new Set<net.Socket>();
+
+// Prometheus metrics
+const metricsRegistry = new Registry();
+collectDefaultMetrics({ register: metricsRegistry });
+
+const requestsCounter = new Counter({
+  name: "app_requests_total",
+  help: "Total HTTP requests",
+  labelNames: ["method", "route", "status"],
+});
+metricsRegistry.registerMetric(requestsCounter);
+
+const activeRequestsGauge = new Gauge({
+  name: "app_active_requests",
+  help: "Currently active HTTP requests",
+});
+metricsRegistry.registerMetric(activeRequestsGauge);
+
+const openSocketsGauge = new Gauge({
+  name: "app_open_sockets",
+  help: "Currently open TCP sockets",
+});
+metricsRegistry.registerMetric(openSocketsGauge);
+
+const requestDuration = new Histogram({
+  name: "app_request_duration_seconds",
+  help: "Request duration in seconds",
+  labelNames: ["method", "route", "status"],
+  buckets: [0.005, 0.01, 0.05, 0.1, 0.3, 1, 2, 5],
+});
+metricsRegistry.registerMetric(requestDuration);
+
+httpServer.on("connection", (socket: net.Socket) => {
+  connections.add(socket);
+  try {
+    openSocketsGauge.set(connections.size);
+  } catch {}
+  socket.on("close", () => {
+    connections.delete(socket);
+    try {
+      openSocketsGauge.set(connections.size);
+    } catch {}
+  });
+});
 
 declare global {
   namespace Express {
@@ -56,6 +106,22 @@ app.use((req, res, next) => {
   next();
 });
 
+// Track active requests for shutdown instrumentation
+app.use((req, res, next) => {
+  activeRequests += 1;
+  try {
+    activeRequestsGauge.set(activeRequests);
+  } catch {}
+
+  res.on("finish", () => {
+    activeRequests = Math.max(0, activeRequests - 1);
+    try {
+      activeRequestsGauge.set(activeRequests);
+    } catch {}
+  });
+  next();
+});
+
 // Response logger middleware (captures JSON responses)
 app.use((req, res, next) => {
   const start = Date.now();
@@ -80,6 +146,13 @@ app.use((req, res, next) => {
         }
       }
       log(logLine, "express", { requestId: req.id });
+      try {
+        const statusLabel = String(res.statusCode);
+        requestsCounter.labels(req.method, path, statusLabel).inc();
+        requestDuration.labels(req.method, path, statusLabel).observe(duration / 1000);
+      } catch (err) {
+        /* metrics best-effort - don't fail requests */
+      }
     }
   });
 
@@ -115,6 +188,18 @@ app.use((req, res, next) => {
     } catch (err) {
       console.error("[HEALTH] Readiness check failed:", err);
       res.status(503).json({ status: "unready" });
+    }
+  });
+
+  // Prometheus metrics endpoint
+  app.get("/metrics", async (_req, res) => {
+    try {
+      res.setHeader("Content-Type", metricsRegistry.contentType || "text/plain; version=0.0.4");
+      const body = await metricsRegistry.metrics();
+      res.send(body);
+    } catch (err: any) {
+      console.error("[METRICS] Failed to collect metrics:", err?.message || err);
+      res.status(500).send("metrics error");
     }
   });
 
@@ -163,6 +248,63 @@ app.use((req, res, next) => {
   const shutdown = async (signal: string) => {
     console.log(`\n[SERVER] Received ${signal}, shutting down gracefully...`);
 
+    // Stop accepting new connections first
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          console.error("[SERVER] Timeout while waiting for httpServer.close");
+          resolve();
+        }, 10000);
+
+        httpServer.close((err) => {
+          clearTimeout(timeout);
+          if (err) {
+            console.error("[SERVER] Error closing HTTP server:", err);
+            return reject(err);
+          }
+          console.log("[SERVER] HTTP server stopped accepting new connections");
+          resolve();
+        });
+      });
+    } catch (err) {
+      console.error("[SERVER] Error during httpServer.close:", err);
+    }
+
+    // Drain active sockets and in-flight requests before stopping background workers
+    try {
+      const drainTimeoutMs = parseInt(process.env.SHUTDOWN_DRAIN_MS || "10000", 10);
+      if (connections.size > 0 || activeRequests > 0) {
+        console.log(
+          `[SERVER] Waiting up to ${drainTimeoutMs}ms for ${connections.size} sockets and ${activeRequests} active requests to finish`,
+        );
+
+        // Politely ask sockets to end
+        connections.forEach((sock) => {
+          try {
+            sock.end();
+          } catch {}
+        });
+
+        const start = Date.now();
+        while ((connections.size > 0 || activeRequests > 0) && Date.now() - start < drainTimeoutMs) {
+          // sleep briefly
+          await new Promise((r) => setTimeout(r, 200));
+        }
+
+        if (connections.size > 0) {
+          console.warn(`[SERVER] Force-closing ${connections.size} sockets`);
+          connections.forEach((sock) => {
+            try {
+              sock.destroy();
+            } catch {}
+          });
+        }
+      }
+    } catch (err) {
+      console.warn("[SERVER] Error while draining connections:", err);
+    }
+
+    // Stop the trading bot (if running)
     if (tradingBot) {
       try {
         await tradingBot.stop();
@@ -171,13 +313,7 @@ app.use((req, res, next) => {
       }
     }
 
-    try {
-      await pool.end();
-      console.log("[DB] Pool closed");
-    } catch (err) {
-      console.warn("[DB] Error while closing pool:", err);
-    }
-
+    // Cleanup learning engine
     try {
       const { learningEngine } = await import("./learningEngine");
       await learningEngine.cleanup();
@@ -185,15 +321,17 @@ app.use((req, res, next) => {
       console.warn("[LEARNING] Error during cleanup:", err);
     }
 
-    httpServer.close(() => {
-      console.log("[SERVER] Server closed");
-      process.exit(0);
-    });
+    // Now it's safe to close the DB pool when background activity has completed
+    try {
+      await pool.end();
+      console.log("[DB] Pool closed");
+    } catch (err) {
+      console.warn("[DB] Error while closing pool:", err);
+    }
 
-    setTimeout(() => {
-      console.error("[SERVER] Forced shutdown after timeout");
-      process.exit(1);
-    }, 10000);
+    // Exit process gracefully
+    console.log("[SERVER] Shutdown complete; exiting");
+    process.exit(0);
   };
 
   process.on("SIGTERM", () => shutdown("SIGTERM"));
