@@ -1,0 +1,10 @@
+groups:
+  - name: app.rules
+    rules:
+      - alert: HighActiveRequests
+        expr: app_active_requests > 50
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High active requests on app ({{ $value }})"
